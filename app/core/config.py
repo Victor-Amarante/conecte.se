@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_PATH)
     
     authentication_api_key: str
+    evo_base_url: str
+    evo_instance_name: str
 
 
 settings = Settings()
