@@ -1,0 +1,9 @@
+[project]
+name = "conectese"
+version = "0.1.0"
+description = "Chabot's conectese"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.122.0",
+]
