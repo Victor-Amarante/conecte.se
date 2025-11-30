@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from app.services.evolution_service import EvolutionApiService
+from app.dependencies import get_evolution_service
 
 router = APIRouter()
-evolution_service = EvolutionApiService()
 
 @router.post("/webhook")
-async def evolution_webhook(request: Request):
+async def evolution_webhook(request: Request, evolution_service: EvolutionApiService = Depends(get_evolution_service)):
     body = await request.json()
 
     try:
