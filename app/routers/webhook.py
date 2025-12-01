@@ -11,7 +11,7 @@ async def evolution_webhook(request: Request, evolution_service: EvolutionApiSer
     logger.info(f"Webhook received: {body}")
 
     try:
-        remote_jid = body["data"]["key"]["remoteJid"]
+        senderPn = body["data"]["key"]["senderPn"]
         from_me = body["data"]["key"]["fromMe"]
         message = (
             body["data"]["message"].get("conversation")
@@ -23,10 +23,10 @@ async def evolution_webhook(request: Request, evolution_service: EvolutionApiSer
     if from_me:
         return {"status": "ignored", "reason": "message from bot"}
     
-    if "@g.us" in remote_jid:
+    if "@g.us" in senderPn:
         return {"status": "ignored", "reason": "message from group"}
     
-    user_number = remote_jid.replace("@s.whatsapp.net", "")
+    user_number = senderPn.replace("@s.whatsapp.net", "")
     reply_text = f"Recebi sua mensagem: {message}"
 
     try:
