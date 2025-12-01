@@ -23,7 +23,7 @@ class EvolutionApiService:
         json=payload
       )
       
-      if response.status_code != 200:
+      if response.status_code != 201:
         raise Exception(f"Error sending text message: {response.text}")
       
       return response.json()
