@@ -2,6 +2,7 @@ from loguru import logger
 from fastapi import APIRouter, Request, Depends
 from app.services.evolution_service import EvolutionApiService
 from app.dependencies import get_evolution_service
+from app.utils.extract_user_number import extract_user_number
 
 router = APIRouter()
 
@@ -11,30 +12,41 @@ async def evolution_webhook(request: Request, evolution_service: EvolutionApiSer
     logger.info(f"Webhook received: {body}")
 
     try:
-        senderPn = body["data"]["key"]["senderPn"]
-        from_me = body["data"]["key"]["fromMe"]
-        message = (
-            body["data"]["message"].get("conversation")
-            or body["data"]["message"].get("extendedTextMessage", {}).get("text")
-        )
+        key = body["data"]["key"]
     except Exception:
-        return {"status": "ignored", "reason": "payload format not recognized"}
+        return {"status": "ignored", "reason": "invalid payload (missing key)"}
 
+    user_number = extract_user_number(key)
+    if not user_number:
+        return {"status": "ignored", "reason": "masked user (LID) - cannot respond"}
+    
+    remote_jid = key.get("remoteJid", "")
+    if "@g.us" in remote_jid:
+        return {"status": "ignored", "reason": "message from group"}
+
+    from_me = key.get("fromMe", False)
     if from_me:
         return {"status": "ignored", "reason": "message from bot"}
     
-    if "@g.us" in senderPn:
-        return {"status": "ignored", "reason": "message from group"}
-    
-    user_number = senderPn.replace("@s.whatsapp.net", "")
-    reply_text = f"Recebi sua mensagem: {message}"
+    message_data = body["data"].get("message", {})
+    message = (
+        message_data.get("conversation")
+        or message_data.get("extendedTextMessage", {}).get("text")
+    )
 
+    if not message:
+        return {"status": "ignored", "reason": "empty or unsupported message type"}
+    
+    reply_text = f"Recebi sua mensagem: {message}"
+    
     try:
         evolution_service.send_text_message(user_number, reply_text)
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 
-    return {"status": "ok",
-            "user": user_number,
-            "message_received": message,
-            "reply_sent": reply_text}
+    return {
+        "status": "ok",
+        "user": user_number,
+        "message_received": message,
+        "reply_sent": reply_text
+    }
