@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     authentication_api_key: str
     evo_base_url: str
     evo_instance_name: str
+    groq_api_key: str
 
 
 settings = Settings()

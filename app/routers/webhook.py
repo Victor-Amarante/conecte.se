@@ -1,13 +1,18 @@
 from loguru import logger
 from fastapi import APIRouter, Request, Depends
 from app.services.evolution_service import EvolutionApiService
-from app.dependencies import get_evolution_service
+from app.services.ai_service import AIService
+from app.dependencies import get_evolution_service, get_ai_service
 from app.utils.extract_user_number import extract_user_number
 
 router = APIRouter()
 
 @router.post("/webhook")
-async def evolution_webhook(request: Request, evolution_service: EvolutionApiService = Depends(get_evolution_service)):
+async def evolution_webhook(
+    request: Request,
+    evolution_service: EvolutionApiService = Depends(get_evolution_service),
+    ai_service: AIService = Depends(get_ai_service),
+):
     body = await request.json()
     logger.info(f"Webhook received: {body}")
 
@@ -37,10 +42,10 @@ async def evolution_webhook(request: Request, evolution_service: EvolutionApiSer
     if not message:
         return {"status": "ignored", "reason": "empty or unsupported message type"}
     
-    reply_text = f"Recebi sua mensagem: {message}"
+    ai_response = await ai_service.generate_response(message)
     
     try:
-        evolution_service.send_text_message(user_number, reply_text)
+        evolution_service.send_text_message(user_number, ai_response)
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 
@@ -48,5 +53,5 @@ async def evolution_webhook(request: Request, evolution_service: EvolutionApiSer
         "status": "ok",
         "user": user_number,
         "message_received": message,
-        "reply_sent": reply_text
+        "reply_sent": ai_response
     }
