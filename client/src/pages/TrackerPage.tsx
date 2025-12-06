@@ -1,12 +1,8 @@
 import { useGeoLocation } from "../hooks/useGeoLocation";
 import GpsButton from "../components/GpsButton";
 import { InfoRow } from "../components/InfoRow";
+import { StatusEnum } from "../enums/StatusEnum";
 
-enum StatusEnum {
-  IDLE = "idle",
-  TRACKING = "tracking",
-  ERROR = "error",
-}
 export default function TrackerPage() {
   const { data, isTracking, toggleTracking } = useGeoLocation(3000);
 

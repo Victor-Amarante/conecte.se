@@ -1,9 +1,5 @@
-import GeoTracker from "./components/GeoTracker";
+import TrackerPage from "./pages/TrackerPage";
 
 export function App() {
-  return (
-    <div className="flex h-screen bg-black text-amber-50 justify-center items-center">
-      <GeoTracker />
-    </div>
-  );
+  return <TrackerPage />;
 }
