@@ -13,7 +13,8 @@ class Settings(BaseSettings):
     authentication_api_key: str
     evo_base_url: str
     evo_instance_name: str
-    groq_api_key: str
-
-
+    groq_api_key: str  
+    user_latitude: float = -8.055455094388444
+    user_longitude: float = -34.95131252286159
+    
 settings = Settings()
