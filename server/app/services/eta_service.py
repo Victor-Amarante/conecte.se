@@ -14,14 +14,6 @@ class ETAService:
         destination: UserLocation,
         profile: str = "driving-car"
     ) -> Optional[dict]:
-        """
-        Calcula ETA entre duas localizações
-        Retorna: {
-            "distance_km": float,
-            "duration_minutes": float,
-            "duration_seconds": int
-        }
-        """
         try:
             url = f"{self.base_url}/{profile}"
             params = {
