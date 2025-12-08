@@ -1,9 +1,14 @@
 from loguru import logger
+from typing import Optional
 from fastapi import APIRouter, Request, Depends
 from app.services.evolution_service import EvolutionApiService
 from app.services.ai_service import AIService
-from app.dependencies import get_evolution_service, get_ai_service
+from app.services.bus_location_service import BusLocationService
+from app.services.eta_service import ETAService
+from app.schemas.location import UserLocation, BusLocation
+from app.dependencies import get_evolution_service, get_ai_service, get_bus_location_service, get_eta_service
 from app.utils.extract_user_number import extract_user_number
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -12,6 +17,8 @@ async def evolution_webhook(
     request: Request,
     evolution_service: EvolutionApiService = Depends(get_evolution_service),
     ai_service: AIService = Depends(get_ai_service),
+    bus_location_service: BusLocationService = Depends(get_bus_location_service),
+    eta_service: ETAService = Depends(get_eta_service),
 ):
     body = await request.json()
     logger.info(f"Webhook received: {body}")
@@ -42,7 +49,25 @@ async def evolution_webhook(
     if not message:
         return {"status": "ignored", "reason": "empty or unsupported message type"}
     
-    ai_response = await ai_service.generate_response(message)
+    user_location =  UserLocation(
+        latitude=float(settings.user_latitude),
+        longitude=float(settings.user_longitude),
+    )
+    
+    bus_location = bus_location_service.get_current_location()
+    
+    eta_data: Optional[dict] = None
+    if bus_location:
+        eta_data = eta_service.calculate_eta(
+            origin=bus_location,
+            destination=user_location,
+            profile="driving-car"
+        )
+    
+    ai_response = await ai_service.generate_response(
+        user_message=message,
+        eta_data=eta_data,
+    )
     
     try:
         evolution_service.send_text_message(user_number, ai_response)

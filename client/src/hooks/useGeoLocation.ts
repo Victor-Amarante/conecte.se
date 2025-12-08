@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { sendLocation } from "../services/api";
 
 interface GeoLocationData {
   accuracy: number | null;
@@ -15,7 +16,9 @@ interface UseGeoLocationReturn {
   toggleTracking: () => void;
 }
 
-export function useGeoLocation(intervalMs: number = 3000): UseGeoLocationReturn {
+export function useGeoLocation(
+  intervalMs: number = 3000
+): UseGeoLocationReturn {
   const [data, setData] = useState<GeoLocationData>({
     accuracy: null,
     latitude: null,
@@ -54,6 +57,21 @@ export function useGeoLocation(intervalMs: number = 3000): UseGeoLocationReturn 
             error: null,
           };
           setData(data);
+          try {
+            sendLocation({
+              latitude,
+              longitude,
+              accuracy,
+              timestamp: position.timestamp,
+            });
+          } catch (error) {
+            setData((prev) => ({
+              ...prev,
+              error:
+                "Erro ao enviar localização para o backend: " +
+                (error as Error).message,
+            }));
+          }
         }
       },
       (error) => {
