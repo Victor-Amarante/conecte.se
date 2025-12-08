@@ -2,12 +2,13 @@ from app.services.evolution_service import EvolutionApiService
 from app.services.ai_service import AIService
 from app.services.bus_location_service import BusLocationService
 from app.services.eta_service import ETAService
+from app.core.config import settings
 
 
 evolution_service = EvolutionApiService()
 ai_service = AIService()
 bus_location_service = BusLocationService()
-eta_service = ETAService()
+eta_service = ETAService(api_key=settings.openrouteservice_api_key)
 
 
 def get_evolution_service():

@@ -16,5 +16,6 @@ class Settings(BaseSettings):
     groq_api_key: str  
     user_latitude: float = -8.055455094388444
     user_longitude: float = -34.95131252286159
+    openrouteservice_api_key: str
     
 settings = Settings()
