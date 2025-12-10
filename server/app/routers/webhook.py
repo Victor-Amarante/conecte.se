@@ -21,7 +21,7 @@ async def evolution_webhook(
     eta_service: ETAService = Depends(get_eta_service),
 ):
     body = await request.json()
-    logger.info(f"Webhook received: {body}")
+    logger.debug(f"Webhook received: {body}")
 
     try:
         key = body["data"]["key"]
@@ -49,34 +49,62 @@ async def evolution_webhook(
     if not message:
         return {"status": "ignored", "reason": "empty or unsupported message type"}
     
-    user_location =  UserLocation(
+    logger.info(f"Processing message from {user_number}: {message}")
+    
+    user_location = UserLocation(
         latitude=float(settings.user_latitude),
         longitude=float(settings.user_longitude),
     )
     
     bus_location = bus_location_service.get_current_location()
     
+    if not bus_location:
+        logger.warning("No valid bus location available for ETA calculation")
+    else:
+        logger.info(
+            f"Bus location available: lat={bus_location.latitude}, "
+            f"lon={bus_location.longitude}"
+        )
+    
     eta_data: Optional[dict] = None
     if bus_location:
-        eta_data = eta_service.calculate_eta(
-            origin=bus_location,
-            destination=user_location,
-            profile="driving-car"
-        )
+        try:
+            eta_data = eta_service.calculate_eta(
+                origin=bus_location,
+                destination=user_location,
+                profile="driving-car"
+            )
+            if eta_data:
+                logger.info(
+                    f"ETA calculated: {eta_data.get('distance_km')} km, "
+                    f"{eta_data.get('duration_minutes')} min"
+                )
+            else:
+                logger.warning("ETA calculation returned None")
+        except Exception as e:
+            logger.error(f"Error calculating ETA: {e}", exc_info=True)
+            eta_data = None
+    else:
+        logger.info("Skipping ETA calculation - no bus location")
     
     ai_response = await ai_service.generate_response(
         user_message=message,
         eta_data=eta_data,
     )
     
+    logger.info(f"AI response generated: {ai_response}")
+    
     try:
         evolution_service.send_text_message(user_number, ai_response)
+        logger.info(f"Message sent successfully to {user_number}")
     except Exception as e:
+        logger.error(f"Error sending message: {e}", exc_info=True)
         return {"status": "error", "detail": str(e)}
 
     return {
         "status": "ok",
         "user": user_number,
         "message_received": message,
-        "reply_sent": ai_response
+        "reply_sent": ai_response,
+        "eta_available": eta_data is not None
     }
