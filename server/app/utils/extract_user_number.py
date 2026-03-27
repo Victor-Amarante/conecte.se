@@ -1,4 +1,7 @@
-def extract_user_number(message_key: dict):
+from typing import Optional
+
+
+def extract_user_number(message_key: dict) -> Optional[str]:
     possible_ids = [
         message_key.get("remoteJid"),
         message_key.get("senderPn"),
