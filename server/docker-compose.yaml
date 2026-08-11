@@ -48,8 +48,8 @@ services:
     networks:
       - evolution-net
     environment:
-      PGADMIN_DEFAULT_EMAIL: EMAIL
-      PGADMIN_DEFAULT_PASSWORD: PASSWORD
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
     volumes:
       - pgadmin_data:/var/lib/pgadmin
     ports:
