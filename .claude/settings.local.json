@@ -4,7 +4,9 @@
       "Bash(uv run *)",
       "Bash(docker info *)",
       "Bash(docker exec *)",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(docker compose *)",
+      "Bash(curl -sf localhost:8000/health)"
     ]
   }
 }
