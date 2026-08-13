@@ -1,192 +1,368 @@
-# 🚌 Conectese Server - API Backend
+# 🚌 Conectese Server — API Backend
 
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.122+-green.svg)
+![PostGIS](https://img.shields.io/badge/PostGIS-3.4-blue.svg)
 ![Status](https://img.shields.io/badge/Status-Em%20Desenvolvimento-yellow.svg)
 
 ## 📋 Sobre o Projeto
 
-O **Conectese Server** é a API backend do sistema de monitoramento de ônibus em tempo real para Recife. Desenvolvido com FastAPI, oferece endpoints REST para consulta de localização de ônibus e integração com WhatsApp através da Evolution API, permitindo que os cidadãos consultem informações sobre transporte público via chatbot inteligente.
+O **Conectese Server** é a API backend do assistente de transporte público da
+Região Metropolitana do Recife. O passageiro conversa pelo WhatsApp, envia sua
+localização, escolhe entre as linhas que passam por ali e acompanha quanto
+tempo falta para o ônibus chegar.
 
-### 🎯 Objetivo
+O sistema é construído sobre três fundações:
 
-Fornecer uma API robusta e escalável que permite:
+1. **Uma cópia local da rede de transporte** — 390 linhas, ~700 sublinhas e
+   7.136 paradas com geometria, extraídas do portal
+   [RUMO](https://virtual.granderecife.pe.gov.br/rumo/) do Grande Recife e
+   carregadas em Postgres/PostGIS. Responde *quais* linhas atendem o usuário e
+   *onde* ficam as paradas.
+2. **O Google Maps** para os horários. Responde *quando* o ônibus passa.
+3. **Um agente LangGraph** com ferramentas sobre os dois, que decide o que
+   consultar em vez de seguir um roteiro fixo.
 
-- **Consulta de localização** de ônibus em tempo real
-- **Integração com WhatsApp** via Evolution API para chatbot conversacional
-- **Processamento de IA** para interpretação de mensagens e respostas inteligentes
-- **Cálculo de ETA** (Estimated Time of Arrival) para pontos de parada
-- **Webhook** para recebimento de mensagens do WhatsApp
+### Por que duas fontes
+
+O encaixe entre elas é o que faz o produto funcionar sem infraestrutura de
+rastreamento própria:
+
+| | RUMO (local) | Google Maps |
+|---|---|---|
+| Responde | quais linhas, onde é a parada, itinerário | quando o ônibus passa |
+| Latência | ~2 ms (PostGIS) | ~400 ms (rede) |
+| Custo | zero | por requisição |
+
+**Os códigos de linha coincidem nas duas fontes** — o Google identifica a
+agência como "Grande Recife Consórcio de Transporte" e usa os mesmos códigos
+(`2462`, `1927`, ...) que o RUMO. É isso que permite cruzá-las sem tradução.
+
+A alternativa seria depender de GPS embarcado em cada veículo, que não existe
+como fonte pública. O endpoint `POST /location` continua disponível para quem
+tiver rastreamento próprio: quando há posição ao vivo de uma linha, ela tem
+prioridade sobre o horário programado, por ser mais precisa.
 
 ## ✨ Funcionalidades
 
-- 🔍 **API REST**: Endpoints para consulta de localização de ônibus
-- 💬 **Webhook WhatsApp**: Recebimento e processamento de mensagens via Evolution API
-- 🤖 **IA Conversacional**: Processamento de mensagens usando LangChain e Groq
-- ⏰ **Cálculo de ETA**: Estimativa de tempo de chegada aos pontos
-- 📍 **Busca por Linha/Ponto**: Consultas flexíveis por número de linha ou ponto de parada
-- 🏗️ **Arquitetura em Camadas**: Separação clara de responsabilidades
+- 🗺️ **Rede de transporte completa**: paradas, linhas, sublinhas, itinerários e
+  traçados, com consultas espaciais em PostGIS
+- 🎯 **Linhas prováveis por localização**: dada a posição do passageiro, ranqueia
+  as linhas que ele provavelmente quer
+- 🤖 **Agente conversacional**: LangGraph + OpenAI, com ferramentas e memória de
+  conversa persistida por número de WhatsApp
+- 🔌 **Ferramentas via MCP**: capacidades externas acopláveis sem alterar o grafo
+- 📍 **Localização pelo WhatsApp**: aceita `locationMessage` e `liveLocationMessage`
+- ⏰ **ETA com trânsito real**: Google Routes API, com fallback Haversine
+- 🔄 **ETL idempotente**: sincronização do RUMO com snapshots brutos e auditoria
 
-## 🛠️ Tecnologias Utilizadas
+## 🛠️ Tecnologias
 
-- **Python 3.12+**: Linguagem de programação principal
-- **FastAPI**: Framework web moderno e rápido para construção da API
-- **LangChain**: Framework para desenvolvimento de aplicações com LLMs
-- **Groq**: Provedor de IA para processamento de linguagem natural
-- **Evolution API**: Integração com WhatsApp para comunicação via chatbot
-- **Pydantic**: Validação de dados e configurações
-- **Loguru**: Sistema de logging avançado
-- **uv**: Gerenciador de pacotes Python moderno e rápido
+| Camada | Tecnologia |
+|---|---|
+| API | FastAPI, Pydantic, Loguru |
+| Dados | PostgreSQL 16 + PostGIS 3.4, SQLAlchemy 2.0 (async), Alembic, GeoAlchemy2 |
+| ETL | httpx, selectolax, pyproj, tenacity |
+| IA | LangGraph, LangChain, OpenAI, langchain-mcp-adapters |
+| WhatsApp | Evolution API v2.3.0 |
+| Rotas | Google Routes API |
+| Pacotes | uv |
 
-## 📁 Estrutura do Projeto
+## 📁 Estrutura
 
 ```
 server/
 ├── app/
-│   ├── __init__.py
-│   ├── main.py              # Aplicação principal FastAPI
-│   ├── core/
-│   │   ├── config.py        # Configurações da aplicação
-│   │   └── dependencies.py  # Injeção de dependências
-│   ├── repositories/        # Camada de acesso a dados
-│   ├── routers/             # Endpoints da API
-│   │   ├── webhook.py       # Webhook do WhatsApp
-│   │   └── bus_location.py # Endpoints de localização
-│   ├── schemas/             # Modelos de dados (Pydantic)
-│   │   └── location.py      # Schemas de localização
-│   ├── services/            # Lógica de negócio
-│   │   ├── ai_service.py    # Serviço de IA
-│   │   ├── bus_location_service.py
-│   │   ├── eta_service.py   # Cálculo de ETA
-│   │   └── evolution_service.py # Integração Evolution API
-│   ├── prompts/             # Prompts para IA
-│   │   └── whatsapp_system_prompt.py
-│   └── utils/               # Utilitários
-│       └── extract_user_number.py
-├── pyproject.toml           # Configuração do projeto e dependências
-├── uv.lock                  # Lock file das dependências
-├── .env.example            # Exemplo de variáveis de ambiente
-└── README.md                # Este arquivo
+│   ├── main.py                  # Aplicação FastAPI
+│   ├── dependencies.py          # Wiring dos serviços
+│   ├── agent/                   # Agente conversacional
+│   │   ├── graph.py             #   StateGraph + checkpointer Postgres
+│   │   ├── tools.py             #   Ferramentas sobre a rede de transporte
+│   │   ├── context.py           #   Contexto do turno (usuário, localização)
+│   │   ├── state.py             #   AgentState
+│   │   └── mcp.py               #   Carregamento opcional de tools MCP
+│   ├── etl/                     # Pipeline de dados do RUMO
+│   │   ├── rumo_client.py       #   Cliente HTTP (JSON + HTML)
+│   │   ├── parsers.py           #   Parse do catálogo de linhas
+│   │   ├── transform.py         #   UTM 25S → WGS84, normalização
+│   │   ├── load.py              #   Upserts idempotentes
+│   │   ├── pipeline.py          #   Orquestração
+│   │   └── cli.py               #   `python -m app.etl.cli`
+│   ├── db/
+│   │   ├── models.py            # Modelos SQLAlchemy
+│   │   └── session.py           # Engine e sessões async
+│   ├── routers/                 # webhook, bus_location, transit
+│   ├── schemas/                 # Modelos Pydantic
+│   ├── services/                # transit, eta, session, evolution, bus_location
+│   ├── prompts/                 # Prompt de sistema do agente
+│   └── utils/
+├── alembic/                     # Migrations
+├── tests/                       # pytest (fixtures reais do RUMO)
+├── docker-compose.yaml
+└── pyproject.toml
 ```
-
-### Arquitetura
-
-O projeto segue uma arquitetura em camadas bem definida:
-
-- **Routers**: Definem os endpoints da API REST e webhooks
-- **Services**: Contêm a lógica de negócio e orquestração
-- **Repositories**: Gerenciam o acesso e manipulação de dados
-- **Schemas**: Modelos de validação e serialização de dados (Pydantic)
-- **Core**: Configurações e dependências compartilhadas
 
 ## 📦 Pré-requisitos
 
-Antes de começar, certifique-se de ter instalado:
-
-- Python 3.12 ou superior
-- [uv](https://github.com/astral-sh/uv) (gerenciador de pacotes Python)
-- Conta/configuração da Evolution API para WhatsApp
-- Chave de API do Groq para processamento de IA
-- Acesso à API de dados dos ônibus de Recife (quando disponível)
+- Python 3.12+
+- [uv](https://github.com/astral-sh/uv)
+- Docker (para Postgres/PostGIS, Evolution API e Redis)
+- Chave da OpenAI (para o agente)
+- Chave do Google Maps com a **Routes API** habilitada (opcional — sem ela o ETA
+  cai para a estimativa em linha reta)
 
 ## 🚀 Instalação
 
-1. **Navegue até o diretório do server**:
-
-   ```bash
-   cd server
-   ```
-
-2. **Instale as dependências usando uv**:
-
-   ```bash
-   uv sync
-   ```
-
-3. **Ative o ambiente virtual**:
-   ```bash
-   source .venv/bin/activate  # Linux/Mac
-   # ou
-   .venv\Scripts\activate      # Windows
-   ```
-
-## ⚙️ Configuração
-
-Copie o arquivo `.env.example` para `.env` e configure as variáveis:
-
 ```bash
-cp .env.example .env
+cd server
+uv sync
+cp .env.example .env   # e preencha as chaves
 ```
 
-Edite o arquivo `.env` com suas configurações:
+Variáveis essenciais em `.env`:
 
 ```env
-# Evolution API Configuration
-EVOLUTION_API_URL=your_evolution_api_url
-EVOLUTION_API_KEY=your_evolution_api_key
-INSTANCE_NAME=your_instance_name
-
-# Groq AI Configuration
-GROQ_API_KEY=your_groq_api_key
-
-# Bus Data API (quando disponível)
-BUS_API_URL=your_bus_api_url
-BUS_API_KEY=your_bus_api_key
-
-# Application Settings
-DEBUG=True
-LOG_LEVEL=INFO
+AUTHENTICATION_API_KEY=...      # Evolution API
+EVO_BASE_URL=...
+EVO_INSTANCE_NAME=...
+CONECTESE_DATABASE_URL=postgresql+asyncpg://conectese:conectese@localhost:5434/conectese
+OPENAI_API_KEY=...
+GOOGLE_MAPS_API_KEY=...         # opcional
 ```
+
+## 🚀 Subir tudo de uma vez
+
+```bash
+cd server
+cp .env.example .env    # preencha OPENAI_API_KEY e GOOGLE_MAPS_API_KEY
+docker compose up -d --build
+```
+
+Isso sobe cinco serviços: a API do Conectese, o Postgres/PostGIS da aplicação,
+a Evolution API, o Postgres dela e o Redis. A API **aplica as migrations
+sozinha** na subida, então um banco novo já nasce com o schema.
+
+Depois, duas coisas que o compose não faz por você:
+
+**1. Carregar os dados do RUMO** (uma vez, ~2 min):
+
+```bash
+docker compose exec api python -m app.etl.cli sync
+```
+
+**2. Parear o número do WhatsApp.** Abra `http://localhost:8080/manager`, entre
+com a `AUTHENTICATION_API_KEY` do seu `.env`, crie uma instância com o nome de
+`EVO_INSTANCE_NAME` e leia o QR code pelo WhatsApp.
+
+Ou pela API:
+
+```bash
+curl -X POST http://localhost:8080/instance/create \
+  -H "apikey: $AUTHENTICATION_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"instanceName":"'"$EVO_INSTANCE_NAME"'","integration":"WHATSAPP-BAILEYS","qrcode":true}'
+```
+
+O webhook já vem configurado: a Evolution entrega em `http://api:8000/webhook`,
+pelo nome do serviço na rede do Docker. Isso importa — de dentro do container,
+`localhost` seria a própria Evolution, não a API.
+
+| Serviço | Porta | Para quê |
+|---|---|---|
+| API do Conectese | 8000 | `/docs`, `/transit/*`, `/webhook` |
+| Evolution API | 8080 | `/manager` para parear o número |
+| PostGIS da aplicação | 5434 | dados de transporte e conversas |
+| Postgres da Evolution | 5433 | interno da Evolution |
+| pgAdmin | 4000 | inspeção visual do banco |
+
+### Desenvolvimento sem container
+
+O container não recarrega ao salvar arquivo. Para iterar no código, suba só a
+infraestrutura e rode a API no host:
+
+```bash
+docker compose up -d conectese-db evolution-api redis postgres
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload
+```
+
+Nesse modo o `.env` vale como está (`localhost:5434`, `localhost:8080`), mas a
+Evolution precisa alcançar a API no host — troque o webhook para
+`http://host.docker.internal:8000/webhook`.
+
+## 🗄️ Banco de dados
+
+O banco da aplicação é **separado** do Postgres da Evolution API (que fica na
+porta 5433). O da aplicação usa PostGIS na porta **5434**:
+
+```bash
+docker compose up -d conectese-db
+uv run alembic upgrade head
+```
+
+> **Nota (Apple Silicon)**: `postgis/postgis` não publica imagem arm64, então o
+> container roda sob emulação. Funciona normalmente; apenas é mais lento em
+> desenvolvimento local.
+
+## 🔄 Carregar os dados do RUMO
+
+```bash
+# Sincronização completa (~1.600 requests, 5–8 min)
+uv run python -m app.etl.cli sync
+
+# Subconjunto rápido, para desenvolvimento
+uv run python -m app.etl.cli sync --lines 001,011,191
+
+# Sem os traçados — bem mais rápido, mantém paradas e itinerários
+uv run python -m app.etl.cli sync --skip-shapes
+
+# Reaplicar transformações a partir do último snapshot, sem tocar no RUMO
+uv run python -m app.etl.cli reprocess
+
+# Conferir nosso índice contra a fonte, para uma parada
+uv run python -m app.etl.cli validate --stop 190126
+```
+
+Cada execução grava os payloads brutos em `data/raw/<timestamp>/` e registra o
+resultado na tabela `etl_runs`. As cargas são **upserts**: uma execução que
+falha no meio nunca destrói os dados bons da anterior.
+
+> ⚠️ **O RUMO limita clientes agressivos.** Uma sincronização completa são
+> ~1.600 requests; algumas seguidas fazem o portal recusar conexões por um
+> tempo. Por isso o cliente espaça as chamadas (`RUMO_REQUEST_DELAY_SECONDS`) e
+> existe o `reprocess`: mudanças nas regras de transformação se aplicam ao
+> snapshot salvo em segundos, sem nova coleta.
+
+### Sobre a fonte de dados
+
+O portal RUMO expõe uma API JSON pública, porém **não documentada e não
+versionada**. Os pontos que mais importam:
+
+| Endpoint | Observação |
+|---|---|
+| `GET /rumo/` | HTML; `#sel_linha` traz as 390 linhas |
+| `GET /rumo/?codigo-linha=<cod>` | HTML; `#rutas-select` traz as sublinhas |
+| `GET /rumo/json_mapa_paradas` | 7.136 paradas numa única chamada |
+| `GET /rumo/json_paradas_linha/` | Itinerário ordenado — **exige barra final** |
+| `GET /rumo/json_shape/` | Traçado — **exige barra final** |
+| `GET /rumo/json_modal_paradas` | Índice parada→linhas (usado só para validação) |
+
+- Coordenadas vêm em **UTM zona 25S (EPSG:32725)**, convertidas para WGS84 no ETL.
+- `nodo` é a chave de junção entre o inventário de paradas e os itinerários.
+- Em `json_modal_paradas`, os campos `latitude`/`longitude` são na verdade
+  easting/northing — os nomes estão errados na origem.
 
 ## 💻 Uso
 
-### Iniciar o servidor
-
 ```bash
-uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload
 ```
 
-O servidor estará disponível em `http://localhost:8000`
+Documentação interativa em `http://localhost:8000/docs`.
 
-### Documentação da API
+### Endpoints
 
-Acesse a documentação interativa da API em:
+| Método | Rota | Descrição |
+|---|---|---|
+| `POST` | `/webhook` | Webhook da Evolution API |
+| `POST` | `/location` | Recebe a posição GPS de um veículo |
+| `GET` | `/location/tracked` | Linhas com sinal GPS recente |
+| `GET` | `/transit/lines/probable` | **Linhas prováveis para uma localização** |
+| `GET` | `/transit/stops/nearby` | Paradas mais próximas |
+| `GET` | `/transit/lines/search` | Busca de linhas por código ou nome |
+| `GET` | `/transit/lines/{codigo}/itinerary` | Itinerário de uma linha |
+| `GET` | `/transit/stops/{stop_id}/lines` | Linhas que atendem uma parada |
+| `GET` | `/health` | Health check |
 
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+Exemplo:
 
-### Endpoints Principais
+```bash
+curl "localhost:8000/transit/lines/probable?lat=-8.0488&lon=-34.9513"
+```
 
-- `POST /webhook`: Webhook para recebimento de mensagens do WhatsApp
-- `GET /bus-location/{line_number}`: Consulta de localização por número de linha
-- `GET /bus-location/point/{point_id}`: Consulta de localização por ponto de parada
+Omitindo `radius_m`, a busca amplia o raio automaticamente (300 m → 2,5 km) até
+encontrar linhas, o que evita resposta vazia em áreas de baixa densidade.
 
-## 🔧 Desenvolvimento
+## 🤖 O agente
 
-### Estrutura de Serviços
+O fluxo conversacional é um `StateGraph` no padrão agente-com-ferramentas: o
+modelo responde ou pede ferramentas, o `ToolNode` executa, e o controle volta ao
+modelo. O histórico é persistido pelo `AsyncPostgresSaver` usando o número do
+WhatsApp como `thread_id` — é isso que permite ao passageiro enviar a
+localização numa mensagem e escolher a linha na seguinte.
 
-- **AI Service**: Processa mensagens usando LangChain e Groq
-- **Bus Location Service**: Gerencia consultas de localização
-- **ETA Service**: Calcula tempo estimado de chegada
-- **Evolution Service**: Integra com a Evolution API do WhatsApp
+Ferramentas disponíveis: `find_probable_lines`, `find_nearby_stops`,
+`list_lines_at_stop`, `search_lines`, `get_line_itinerary`, `select_line`,
+`get_bus_eta`.
 
-### Adicionar Novos Endpoints
+### Acoplar ferramentas via MCP
 
-1. Crie o schema em `app/schemas/`
-2. Implemente a lógica em `app/services/`
-3. Crie o router em `app/routers/`
-4. Registre o router em `app/main.py`
+Crie `server/mcp_servers.json`:
+
+```json
+{
+  "servers": {
+    "clima": { "transport": "stdio", "command": "uvx", "args": ["mcp-weather"] }
+  }
+}
+```
+
+As ferramentas são carregadas na inicialização do agente. Falhas aqui **não são
+fatais**: o agente segue com as ferramentas nativas.
+
+## 💬 Conversar com o agente sem WhatsApp
+
+```bash
+uv run python scripts/chat.py
+```
+
+Abre um chat no terminal. O script monta payloads no mesmo formato da Evolution
+e os entrega ao `WebhookService` real — só o envio da resposta é substituído por
+um `print`. Ou seja, exercita o caminho de produção inteiro (parsing, sessão,
+agente, ferramentas), sem precisar de instância de WhatsApp.
+
+```
+você › oi
+🤖 Me manda sua localização pelo clipe 📎 ...
+
+você › /loc                      # Cidade Universitária por padrão
+🤖 1️⃣ 2431 — TI CDU / TI CAXANGÁ (UFPE) · ao lado da Biblioteca Central da UFPE, 270 m
+   ...
+   ferramentas: find_probable_lines
+
+você › quero o primeiro
+🤖 O ônibus 2431 está a cerca de 8,5 km e deve chegar em uns 13 minutos.
+   ferramentas: select_line, get_bus_eta
+```
+
+Comandos: `/loc [lat lon]`, `/reset`, `/sair`.
+
+O tempo de chegada funciona sem preparo nenhum — vem dos horários do Google.
+Se você tiver rastreamento próprio, poste a posição e ela passa a ter
+prioridade sobre o horário programado:
+
+```bash
+curl -X POST localhost:8000/location -H 'Content-Type: application/json' \
+  -d '{"latitude":-8.03,"longitude":-34.92,"codigo_linha":"2462"}'
+```
+
+O campo `fonte` na resposta da ferramenta diz qual caminho foi usado:
+`horarios_google` ou `gps_ao_vivo`.
 
 ## 🧪 Testes
 
 ```bash
-# Executar testes (quando implementados)
-pytest
+uv run pytest                      # tudo
+uv run pytest -m "not integration" # só unitários, dispensa banco
 ```
+
+Os testes de parsing e conversão usam fixtures capturadas do RUMO real, de modo
+que uma mudança de layout na origem quebra o teste em vez de corromper o banco.
+Os de integração pulam sozinhos quando o banco está fora ou vazio.
 
 ## 📝 Licença
 
-Este projeto está em desenvolvimento. Informações sobre licença serão adicionadas em breve.
+Este projeto está em desenvolvimento. Informações sobre licença serão
+adicionadas em breve.
 
 ---
 
