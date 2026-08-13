@@ -9,8 +9,34 @@ dependencies = [
     "httpx>=0.28.0",
     "ipykernel>=7.1.0",
     "langchain>=1.1.2",
-    "langchain-groq>=1.1.0",
+    "langchain-openai>=1.0.0",
+    "langgraph>=1.0.0",
+    "langgraph-checkpoint-postgres>=2.0.0",
+    "langchain-mcp-adapters>=0.1.0",
     "loguru>=0.7.3",
     "pydantic-settings>=2.12.0",
     "python-dotenv>=1.2.1",
+    "sqlalchemy[asyncio]>=2.0.40",
+    "asyncpg>=0.30.0",
+    "psycopg[binary,pool]>=3.2.0",
+    "alembic>=1.14.0",
+    "geoalchemy2>=0.17.0",
+    "pyproj>=3.7.0",
+    "selectolax>=0.3.27",
+    "tenacity>=9.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "respx>=0.22.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "integration: needs a PostGIS database with the RUMO data loaded",
 ]

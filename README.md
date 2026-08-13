@@ -1,152 +1,175 @@
-# 🚌 Conectese - Chatbot Inteligente para Monitoramento de Ônibus
+# 🚌 Conectese — Assistente de Transporte Público no WhatsApp
 
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.122+-green.svg)
+![PostGIS](https://img.shields.io/badge/PostGIS-3.4-blue.svg)
+![LangGraph](https://img.shields.io/badge/LangGraph-1.0-orange.svg)
 ![Status](https://img.shields.io/badge/Status-Em%20Desenvolvimento-yellow.svg)
 
 ## 📋 Sobre o Projeto
 
-O **Conectese** é um chatbot inteligente desenvolvido para WhatsApp que permite aos cidadãos de Recife monitorar a localização dos ônibus em tempo real. O projeto visa resolver o problema de imprevisibilidade no transporte público, oferecendo aos usuários informações precisas sobre a localização dos veículos para que possam ajustar seu tempo de saída e ter maior previsibilidade em seus deslocamentos.
+O **Conectese** é um assistente conversacional no WhatsApp para quem usa ônibus
+na Região Metropolitana do Recife. O passageiro manda a localização, o sistema
+mostra quais linhas atendem aquele ponto, ele escolhe uma e descobre quando o
+próximo passa — tudo em linguagem natural, sem instalar aplicativo nenhum.
 
-### 🎯 Objetivo
+### 🎯 Objetivo de longo prazo
 
-Facilitar o acesso à informação sobre a localização dos ônibus através de uma interface simples e acessível no WhatsApp, permitindo que os usuários:
+Reduzir a imprevisibilidade do transporte público, permitindo que o passageiro:
 
-- **Saibam onde está o ônibus** que estão esperando
-- **Tenham monitoramento mais aproximado** da localização em tempo real
-- **Ajustem seu tempo de saída** com base em informações precisas
-- **Tenham maior previsibilidade** nos seus deslocamentos
+- Saiba onde está o ônibus que está esperando
+- Acompanhe a posição do veículo em tempo real
+- Ajuste seu tempo de saída com base em informação precisa
+- Tenha maior previsibilidade nos deslocamentos
+
+> ⚠️ **Este é o destino, não o estado atual.** A seção abaixo separa o que já
+> funciona do que ainda não existe. Ver a [tabela de funcionalidades](#-funcionalidades).
 
 ## ✨ Funcionalidades
 
-- 🔍 **Consulta de Localização**: Informação em tempo real sobre onde está o ônibus desejado
-- 📍 **Monitoramento Aproximado**: Acompanhamento da posição do veículo
-- ⏰ **Previsão de Chegada**: Estimativa de tempo para o ônibus chegar ao ponto
-- 💬 **Interface Conversacional**: Interação natural via WhatsApp
-- 🚏 **Consulta por Linha/Ponto**: Busca por número da linha ou ponto de parada
+### ✅ O que já funciona
 
-## 🛠️ Tecnologias Utilizadas
+| | Funcionalidade | Detalhe |
+|---|---|---|
+| 💬 | **Interface conversacional** | Agente LangGraph + OpenAI no WhatsApp, com memória de conversa por usuário |
+| 🚏 | **Consulta por linha e ponto** | 390 linhas, ~700 sublinhas e **7.136 paradas** com geometria, buscáveis por código, nome ou destino |
+| 📍 | **Paradas próximas** | Consulta espacial em PostGIS: dada a localização, retorna as paradas em ~2 ms |
+| 🎯 | **Linhas prováveis** | Ranqueia as linhas que atendem o passageiro, por distância da parada, quantidade de paradas no raio e presença de terminal |
+| 🗺️ | **Itinerários** | Sequência ordenada de paradas de cada linha |
+| ⏰ | **Horário do próximo ônibus** | Via Google Routes API, com sentido da viagem |
 
-- **Python 3.12+**: Linguagem de programação principal
-- **FastAPI**: Framework web moderno e rápido para construção da API
-- **Evolution API**: Integração com WhatsApp para comunicação via chatbot
-- **Arquitetura em Camadas**: Separação clara de responsabilidades (repositories, services, routers, schemas)
+### 🚧 O que ainda não existe
 
-## 📁 Estrutura do Projeto
+| | Funcionalidade | Situação |
+|---|---|---|
+| 🔍 | **Localização do ônibus em tempo real** | **Não implementado.** Não há fonte pública de posição de veículo (AVL) para a RMR |
+| 📡 | **Monitoramento contínuo do veículo** | O endpoint `POST /location` existe e o agente prioriza GPS ao vivo quando há — mas **nada alimenta esse endpoint hoje** |
+| 🔔 | **Notificações e alertas** | Não existe. O assistente é instruído a recusar quando pedem, em vez de prometer |
+
+### ⚠️ Uma distinção que importa
+
+Quando o passageiro pergunta *"onde está o ônibus?"*, o Conectese responde
+*"o próximo está previsto para 10:02"*. **São perguntas diferentes.**
+
+Os horários vêm da **tabela programada** que o Grande Recife publica ao Google —
+não de rastreamento. Se o veículo estiver atrasado, o sistema não sabe. Por isso
+o assistente diz "previsto para", nunca "está chegando".
+
+## 🏗️ Como funciona
+
+Três fontes se combinam, e o encaixe entre as duas primeiras é o que torna o
+projeto viável sem infraestrutura de rastreamento própria:
+
+| Fonte | Responde | Latência |
+|---|---|---|
+| **RUMO** (cópia local em PostGIS) | quais linhas, onde é a parada, itinerário | ~2 ms |
+| **Google Routes API** | quando o próximo ônibus passa | ~400 ms |
+| **Agente LangGraph** | decide o que consultar e como responder | — |
+
+Os dados da rede vêm do portal [RUMO](https://virtual.granderecife.pe.gov.br/rumo/)
+do Grande Recife, extraídos por um pipeline de ETL próprio e carregados em
+Postgres/PostGIS. **Os códigos de linha coincidem entre RUMO e Google** (`2462`,
+`011`, ...), o que permite cruzar as duas fontes sem tradução.
+
+## 💬 Exemplo real de interação
+
+Transcrição de uma conversa de teste, na Av. Boa Viagem:
+
+```
+Você › Oi, boa noite!
+ Bot › Boa noite! Me manda sua localização pelo clipe 📎 do WhatsApp
+       que eu te digo quais ônibus passam aí.
+
+Você › [envia a localização]
+ Bot › Na parada em frente ao nº 4403 (Edf. Maria Dulce), a 166 m de você 📍
+
+       1️⃣ 041 — SETÚBAL (OPCIONAL)
+       2️⃣ 120 — ALTO DOIS CARNEIROS / SHOPPING RECIFE
+       3️⃣ 023 — TI TANCREDO NEVES / TI AEROPORTO
+       4️⃣ 011 — PIEDADE / DERBY
+       5️⃣ 030 — TI RIO DOCE / BARRA DE JANGADA
+
+       Qual delas você quer acompanhar?
+
+Você › 4
+ Bot › O 011 passa às 09:20, daqui a 2 minutos,
+       sentido Piedade / Derby via Shopping Recife / Riomar 🚌
+```
+
+Quando o Google não consegue confirmar a linha escolhida, o assistente **não
+inventa um horário** — diz que não confirmou e oferece as outras linhas da mesma
+parada, que costuma ser o que resolve o problema do passageiro.
+
+## 🛠️ Tecnologias
+
+| Camada | Tecnologia |
+|---|---|
+| API | FastAPI, Pydantic, Loguru |
+| Dados | PostgreSQL 16 + PostGIS 3.4, SQLAlchemy 2.0 async, Alembic, GeoAlchemy2 |
+| ETL | httpx, selectolax, pyproj, tenacity |
+| IA | LangGraph, LangChain, OpenAI, langchain-mcp-adapters |
+| WhatsApp | Evolution API v2.3.0 |
+| Rotas | Google Routes API |
+| Front | React 19, TypeScript, Vite, Tailwind |
+| Infra | Docker Compose, uv |
+
+## 📁 Estrutura
 
 ```
 conectese/
-├── app/
-│   ├── __init__.py
-│   ├── main.py              # Aplicação principal FastAPI
-│   ├── repositories/        # Camada de acesso a dados
-│   ├── routers/             # Endpoints da API
-│   ├── schemas/             # Modelos de dados (Pydantic)
-│   └── services/            # Lógica de negócio
-├── pyproject.toml           # Configuração do projeto e dependências
-├── uv.lock                  # Lock file das dependências
-└── README.md                # Este arquivo
+├── server/          # API FastAPI, ETL, agente conversacional
+│   ├── app/
+│   │   ├── agent/   # grafo LangGraph, ferramentas, MCP
+│   │   ├── etl/     # pipeline de dados do RUMO
+│   │   ├── db/      # modelos e sessões
+│   │   ├── routers/ # webhook, transit, bus_location
+│   │   └── services/
+│   ├── alembic/     # migrations
+│   ├── tests/       # 124 testes
+│   └── docker-compose.yaml
+└── client/          # rastreador React (envia GPS para POST /location)
 ```
 
-### Arquitetura
+Documentação detalhada do backend em **[server/README.md](server/README.md)** —
+inclui o mapeamento completo da API não documentada do RUMO.
 
-O projeto segue uma arquitetura em camadas bem definida:
-
-- **Routers**: Definem os endpoints da API REST
-- **Services**: Contêm a lógica de negócio e orquestração
-- **Repositories**: Gerenciam o acesso e manipulação de dados
-- **Schemas**: Modelos de validação e serialização de dados (Pydantic)
-
-## 📦 Pré-requisitos
-
-Antes de começar, certifique-se de ter instalado:
-
-- Python 3.12 ou superior
-- [uv](https://github.com/astral-sh/uv) (gerenciador de pacotes Python)
-- Conta/configuração da Evolution API para WhatsApp
-- Acesso à API de dados dos ônibus de Recife (quando disponível)
-
-## 🚀 Instalação
-
-1. **Clone o repositório** (quando disponível):
-
-   ```bash
-   git clone <url-do-repositorio>
-   cd conectese
-   ```
-
-2. **Instale as dependências usando uv**:
-
-   ```bash
-   uv sync
-   ```
-
-3. **Ative o ambiente virtual**:
-   ```bash
-   source .venv/bin/activate  # Linux/Mac
-   # ou
-   .venv\Scripts\activate      # Windows
-   ```
-
-## ⚙️ Configuração
-
-Crie um arquivo `.env` na raiz do projeto com as seguintes variáveis:
-
-```env
-# Evolution API Configuration
-EVOLUTION_API_URL=your_evolution_api_url
-EVOLUTION_API_KEY=your_evolution_api_key
-INSTANCE_NAME=your_instance_name
-
-# Bus Data API (quando disponível)
-BUS_API_URL=your_bus_api_url
-BUS_API_KEY=your_bus_api_key
-
-# Application Settings
-DEBUG=True
-LOG_LEVEL=INFO
-```
-
-## 💻 Uso
-
-### Iniciar o servidor
+## 🚀 Começando
 
 ```bash
-uvicorn app.main:app --reload
+cd server
+cp .env.example .env      # preencha OPENAI_API_KEY e GOOGLE_MAPS_API_KEY
+docker compose up -d --build
+docker compose exec api python -m app.etl.cli sync   # carrega a rede, ~2 min
 ```
 
-O servidor estará disponível em `http://localhost:8000`
+Depois pareie o WhatsApp em `http://localhost:8080/manager`.
 
-### Documentação da API
+Para conversar com o agente **sem WhatsApp**:
 
-Acesse a documentação interativa da API em:
-
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
-### Exemplo de Interação via WhatsApp
-
-```
-Usuário: Olá, onde está o ônibus da linha 123?
-
-Bot: Olá! Vou verificar a localização do ônibus da linha 123 para você.
-     O ônibus está atualmente na Rua X, próximo ao ponto Y.
-     Tempo estimado de chegada ao seu ponto: 5 minutos.
-
-Usuário: Qual a previsão de chegada no ponto Z?
-
-Bot: O ônibus da linha 123 está a aproximadamente 2 km do ponto Z.
-     Previsão de chegada: 8 minutos.
+```bash
+docker compose exec api python scripts/chat.py
 ```
 
-## 👥 Equipe
+Os passos completos, incluindo o modo de desenvolvimento com hot reload, estão
+em [server/README.md](server/README.md).
 
-Este projeto está sendo desenvolvido por uma equipe do Centro de Informática da Universidade Federal de Pernambuco, comprometida em melhorar a mobilidade urbana em Recife através da tecnologia.
+## 🗺️ Próximos passos
+
+1. **Fechar o rastreador colaborativo.** O [client/](client/) já envia GPS a cada
+   3 s, e o agente já prioriza posição ao vivo sobre horário programado. Falta o
+   rastreador informar **qual linha** está operando — hoje toda posição chega sem
+   identificação.
+2. **Buscar uma fonte de AVL.** Parceria com a Cittamobi, que opera o tempo real
+   do Recife, ou solicitação do feed ao Grande Recife via Lei de Acesso à
+   Informação.
+3. **Melhorias conversacionais.** Notificações quando houver tempo real, consulta
+   de itinerário completo, integração com metrô e BRT.
 
 ## 📝 Licença
 
-Este projeto está em desenvolvimento. Informações sobre licença serão adicionadas em breve.
+Este projeto está em desenvolvimento. Informações sobre licença serão
+adicionadas em breve.
 
 ---
 
-**Desenvolvido com ❤️ para melhorar a mobilidade urbana em Recife**
+**Desenvolvido para melhorar a mobilidade urbana em Recife**
