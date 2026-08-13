@@ -41,7 +41,9 @@ async def session():
         async with maker() as db:
             try:
                 count = await db.scalar(text("SELECT COUNT(*) FROM stops"))
-            except (OperationalError, DBAPIError) as exc:
+            except (OperationalError, DBAPIError, OSError) as exc:
+                # OSError cobre o caso de o Postgres estar simplesmente fora:
+                # a conexão é recusada antes de o driver traduzir o erro.
                 pytest.skip(f"database unavailable: {exc}")
             if not count:
                 pytest.skip("transit data not loaded — run the ETL first")

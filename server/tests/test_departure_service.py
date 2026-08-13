@@ -87,6 +87,59 @@ class TestParsing:
 
         assert len(deps) == 2
 
+    def test_distinct_lines_win_the_slots(self):
+        """Sem filtro de linha a lista é o cardápio do passageiro.
+
+        Duas partidas seguidas da mesma linha ocupariam vagas que poderiam
+        mostrar outra opção — foi o que aconteceu num teste real, onde o 910
+        apareceu duas vezes em três lugares.
+        """
+        data = response(
+            leg("910", "2026-08-13T03:44:00Z"),
+            leg("910", "2026-08-13T03:49:00Z"),
+            leg("063", "2026-08-13T04:25:00Z"),
+            leg("073", "2026-08-13T04:33:00Z"),
+        )
+
+        deps = DepartureService._parse(data, None, 3)
+
+        assert [d.codigo_linha for d in deps] == ["910", "063", "073"]
+
+    def test_repeats_fill_leftover_slots(self):
+        data = response(
+            leg("910", "2026-08-13T03:44:00Z"),
+            leg("910", "2026-08-13T03:49:00Z"),
+            leg("063", "2026-08-13T04:25:00Z"),
+        )
+
+        deps = DepartureService._parse(data, None, 3)
+
+        assert [d.codigo_linha for d in deps] == ["910", "910", "063"]
+
+    def test_the_result_stays_in_time_order(self):
+        data = response(
+            leg("910", "2026-08-13T03:44:00Z"),
+            leg("910", "2026-08-13T03:49:00Z"),
+            leg("063", "2026-08-13T04:25:00Z"),
+        )
+
+        deps = DepartureService._parse(data, None, 3)
+
+        assert [d.departure_time for d in deps] == sorted(
+            d.departure_time for d in deps
+        )
+
+    def test_filtering_by_line_keeps_every_departure(self):
+        """Ao perguntar por uma linha específica, repetições são o que interessa."""
+        data = response(
+            leg("910", "2026-08-13T03:44:00Z"),
+            leg("910", "2026-08-13T03:49:00Z"),
+        )
+
+        deps = DepartureService._parse(data, "910", 3)
+
+        assert len(deps) == 2
+
     def test_sorted_by_time_and_capped(self):
         data = response(
             leg("2462", "2026-08-13T04:00:00Z"),

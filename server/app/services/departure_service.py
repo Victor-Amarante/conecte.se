@@ -198,7 +198,29 @@ class DepartureService:
                     )
 
         departures.sort(key=lambda d: d.departure_time)
-        return departures[:max_results]
+
+        if codigo_linha:
+            return departures[:max_results]
+
+        # Sem filtro de linha a lista vira o cardápio do passageiro, e duas
+        # partidas seguidas da mesma linha desperdiçariam vagas que poderiam
+        # mostrar outra opção. Damos uma passagem por linha primeiro e só então
+        # completamos com as repetições, ainda em ordem de horário.
+        primeiras: list[Departure] = []
+        repetidas: list[Departure] = []
+        vistas: set[str] = set()
+        for departure in departures:
+            if departure.codigo_linha in vistas:
+                repetidas.append(departure)
+            else:
+                vistas.add(departure.codigo_linha)
+                primeiras.append(departure)
+
+        selecionadas = primeiras[:max_results]
+        if len(selecionadas) < max_results:
+            selecionadas.extend(repetidas[: max_results - len(selecionadas)])
+        selecionadas.sort(key=lambda d: d.departure_time)
+        return selecionadas
 
     async def close(self) -> None:
         if self._client and not self._client.is_closed:
