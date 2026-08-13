@@ -1,0 +1,90 @@
+[
+ {
+  "sublinha": 1424,
+  "ruta": 2436,
+  "nodo": 19223,
+  "posicion": 0,
+  "nombre": "Terminal de Ponte dos Carvalhos - 190223",
+  "referencia": "MINITERMINAL PONTE DOS CARVALHO  TIPO - B1 ÁREA DE DESPACHANTE FECHADA, 02 SANITÁRIOS, LANCHONETE, ÁREA CONSTRUÍDA =41M²    AO LADO DA TRAVESSA BOM CONSELHO - CABO DE SANTO AGOSTINHO",
+  "posX": 281302.97866523557,
+  "posY": 9088652.471504372,
+  "orden": 1
+ },
+ {
+  "sublinha": 1424,
+  "ruta": 2436,
+  "nodo": 19126,
+  "posicion": 311,
+  "nombre": "190126",
+  "referencia": "EM FRENTE AO Nº749.",
+  "posX": 281529.74168203736,
+  "posY": 9088836.488606868,
+  "orden": 1
+ },
+ {
+  "sublinha": 1424,
+  "ruta": 2436,
+  "nodo": 19127,
+  "posicion": 668,
+  "nombre": "190127",
+  "referencia": "A 6,50 METROS DA ESQUINA DA RUA \"C\", LADO OPOSTO AO PC Nº C26427 (QUE FICA NA PISTA AO CENTRO}",
+  "posX": 281801.65951101616,
+  "posY": 9089065.528510062,
+  "orden": 1
+ },
+ {
+  "sublinha": 1424,
+  "ruta": 2436,
+  "nodo": 19128,
+  "posicion": 779,
+  "nombre": "190128",
+  "referencia": "EM FRENTE AO Nº251.",
+  "posX": 281889.366587367,
+  "posY": 9089134.02784678,
+  "orden": 1
+ },
+ {
+  "sublinha": 1424,
+  "ruta": 2436,
+  "nodo": 19129,
+  "posicion": 1038,
+  "nombre": "190129",
+  "referencia": "EM FRENTE A IGREJA ADVENTISTA.\n\n\nObs:equipamento substituído por outro novo em 09/10/15.",
+  "posX": 282087.147956867,
+  "posY": 9089298.7345407,
+  "orden": 1
+ },
+ {
+  "sublinha": 1424,
+  "ruta": 2436,
+  "nodo": 19130,
+  "posicion": 1272,
+  "nombre": "190130",
+  "referencia": "LADO OPOSTO A MATERNIDADE PADRE GERALDO LEITE BASTOS.",
+  "posX": 282255.842558824,
+  "posY": 9089460.57161858,
+  "orden": 1
+ },
+ {
+  "sublinha": 1424,
+  "ruta": 2436,
+  "nodo": 19131,
+  "posicion": 1621,
+  "nombre": "190131",
+  "referencia": "LADO OPOSTO AO N° 190",
+  "posX": 282533.0218328433,
+  "posY": 9089674.1698284,
+  "orden": 1
+ },
+ {
+  "sublinha": 1424,
+  "ruta": 2436,
+  "nodo": 19132,
+  "posicion": 2358,
+  "nombre": "190132",
+  "referencia": "AO LADO DO Nº 1323",
+  "posX": 283109.0173428288,
+  "posY": 9090133.309700457,
+  "orden": 1
+ }
+]

@@ -15,6 +15,51 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  conectese-db:
+    container_name: conectese_db
+    image: postgis/postgis:16-3.4
+    networks:
+      - evolution-net
+    restart: always
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: ${CONECTESE_POSTGRES_USER:-conectese}
+      POSTGRES_PASSWORD: ${CONECTESE_POSTGRES_PASSWORD:-conectese}
+      POSTGRES_DB: ${CONECTESE_POSTGRES_DB:-conectese}
+    volumes:
+      - conectese_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CONECTESE_POSTGRES_USER:-conectese}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    container_name: conectese_api
+    build:
+      context: .
+    restart: unless-stopped
+    networks:
+      - evolution-net
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Dentro da rede do Docker os serviços se enxergam pelo nome, não por
+      # localhost — que aqui seria o próprio container.
+      CONECTESE_DATABASE_URL: >-
+        postgresql+asyncpg://${CONECTESE_POSTGRES_USER:-conectese}:${CONECTESE_POSTGRES_PASSWORD:-conectese}@conectese-db:5432/${CONECTESE_POSTGRES_DB:-conectese}
+      EVO_BASE_URL: http://evolution-api:8080
+    depends_on:
+      conectese-db:
+        condition: service_healthy
+    # Aplica as migrations antes de servir: sem isso o primeiro start numa
+    # máquina nova sobe a API contra um banco vazio.
+    command: >-
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
   evolution-api:
     container_name: evolution_api
     image: evoapicloud/evolution-api:v2.3.0
@@ -35,6 +80,34 @@ services:
       CACHE_REDIS_PORT: 6379
 
       SERVER_PORT: 8080
+
+      # Entrega toda mensagem recebida ao Conectese. O host é o nome do
+      # serviço: a Evolution roda em container, então "localhost" apontaria
+      # para ela mesma.
+      WEBHOOK_GLOBAL_ENABLED: "true"
+      WEBHOOK_GLOBAL_URL: http://api:8000/webhook
+      WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS: "false"
+      # Só mensagens recebidas interessam. Sem esta lista a Evolution entrega
+      # qrcode.updated, connection.update e dezenas de outros eventos na mesma
+      # URL, gastando entrega e poluindo o log durante o pareamento.
+      WEBHOOK_EVENTS_MESSAGES_UPSERT: "true"
+      WEBHOOK_EVENTS_QRCODE_UPDATED: "false"
+      WEBHOOK_EVENTS_CONNECTION_UPDATE: "false"
+      WEBHOOK_EVENTS_MESSAGES_SET: "false"
+      WEBHOOK_EVENTS_MESSAGES_UPDATE: "false"
+      WEBHOOK_EVENTS_SEND_MESSAGE: "false"
+      WEBHOOK_EVENTS_CONTACTS_SET: "false"
+      WEBHOOK_EVENTS_CONTACTS_UPSERT: "false"
+      WEBHOOK_EVENTS_CONTACTS_UPDATE: "false"
+      WEBHOOK_EVENTS_CHATS_SET: "false"
+      WEBHOOK_EVENTS_CHATS_UPSERT: "false"
+      WEBHOOK_EVENTS_CHATS_UPDATE: "false"
+      WEBHOOK_EVENTS_CHATS_DELETE: "false"
+      WEBHOOK_EVENTS_PRESENCE_UPDATE: "false"
+      WEBHOOK_EVENTS_GROUPS_UPSERT: "false"
+      WEBHOOK_EVENTS_GROUP_UPDATE: "false"
+      WEBHOOK_EVENTS_GROUP_PARTICIPANTS_UPDATE: "false"
+      WEBHOOK_EVENTS_NEW_JWT_TOKEN: "false"
     depends_on:
       - postgres
       - redis
@@ -73,6 +146,7 @@ networks:
 
 volumes:
   postgres_data:
+  conectese_pgdata:
   pgadmin_data:
   evolution_redis:
   evolution_instances:

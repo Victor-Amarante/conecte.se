@@ -35,7 +35,10 @@ class EvolutionApiService:
         except httpx.RequestError as e:
             raise MessageSendError(f"Connection error: {e}") from e
 
-        if response.status_code != 201:
+        # Evolution answers 201 on send, but accept any 2xx: a 200 is a
+        # delivered message too, and treating it as a failure would retry a
+        # message the user already got.
+        if not 200 <= response.status_code < 300:
             raise MessageSendError(f"HTTP {response.status_code}: {response.text}")
 
         logger.info(f"Message sent to {user_cellphone}")

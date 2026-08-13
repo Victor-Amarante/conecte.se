@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run *)",
+      "Bash(docker info *)",
+      "Bash(docker exec *)",
+      "Bash(echo \"EXIT=$?\")"
+    ]
+  }
+}
