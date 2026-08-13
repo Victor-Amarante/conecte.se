@@ -110,24 +110,23 @@ parada, que costuma ser o que resolve o problema do passageiro.
 | IA | LangGraph, LangChain, OpenAI, langchain-mcp-adapters |
 | WhatsApp | Evolution API v2.3.0 |
 | Rotas | Google Routes API |
-| Front | React 19, TypeScript, Vite, Tailwind |
 | Infra | Docker Compose, uv |
 
 ## 📁 Estrutura
 
 ```
 conectese/
-├── server/          # API FastAPI, ETL, agente conversacional
-│   ├── app/
-│   │   ├── agent/   # grafo LangGraph, ferramentas, MCP
-│   │   ├── etl/     # pipeline de dados do RUMO
-│   │   ├── db/      # modelos e sessões
-│   │   ├── routers/ # webhook, transit, bus_location
-│   │   └── services/
-│   ├── alembic/     # migrations
-│   ├── tests/       # 124 testes
-│   └── docker-compose.yaml
-└── client/          # rastreador React (envia GPS para POST /location)
+└── server/          # API FastAPI, ETL, agente conversacional
+    ├── app/
+    │   ├── agent/   # grafo LangGraph, ferramentas, MCP
+    │   ├── etl/     # pipeline de dados do RUMO
+    │   ├── db/      # modelos e sessões
+    │   ├── routers/ # webhook, transit, bus_location
+    │   └── services/
+    ├── alembic/     # migrations
+    ├── scripts/     # chat local, sem WhatsApp
+    ├── tests/       # 124 testes
+    └── docker-compose.yaml
 ```
 
 Documentação detalhada do backend em **[server/README.md](server/README.md)** —
@@ -155,13 +154,14 @@ em [server/README.md](server/README.md).
 
 ## 🗺️ Próximos passos
 
-1. **Fechar o rastreador colaborativo.** O [client/](client/) já envia GPS a cada
-   3 s, e o agente já prioriza posição ao vivo sobre horário programado. Falta o
-   rastreador informar **qual linha** está operando — hoje toda posição chega sem
-   identificação.
-2. **Buscar uma fonte de AVL.** Parceria com a Cittamobi, que opera o tempo real
-   do Recife, ou solicitação do feed ao Grande Recife via Lei de Acesso à
-   Informação.
+1. **Buscar uma fonte de posição em tempo real (AVL).** É o que falta para o
+   objetivo principal. Caminhos possíveis: parceria com a Cittamobi, que opera o
+   tempo real do Recife; solicitação do feed ao Grande Recife via Lei de Acesso
+   à Informação; ou um rastreador colaborativo próprio.
+2. **Rastreador colaborativo.** O servidor já está pronto para receber: o
+   endpoint `POST /location` aceita posição com `codigo_linha`, e o agente
+   prioriza GPS ao vivo sobre horário programado. Falta o app que alimenta —
+   havia um protótipo em React, removido por ora.
 3. **Melhorias conversacionais.** Notificações quando houver tempo real, consulta
    de itinerário completo, integração com metrô e BRT.
 

@@ -1,7 +1,7 @@
 """HTTP access to the transit network.
 
-Used by the React client and, just as importantly, to exercise the spatial
-queries without going through WhatsApp.
+Exercita as consultas espaciais sem passar pelo WhatsApp, e serve de porta de
+entrada para qualquer cliente futuro (rastreador, painel, app).
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
