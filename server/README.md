@@ -93,11 +93,20 @@ server/
 │   │   └── session.py           # Engine e sessões async
 │   ├── routers/                 # webhook, bus_location, transit
 │   ├── schemas/                 # Modelos Pydantic
-│   ├── services/                # transit, eta, session, evolution, bus_location
+│   ├── services/
+│   │   ├── journey_service.py   #   Planejamento origem → destino
+│   │   ├── geocoding_service.py #   Destino escrito → coordenada
+│   │   ├── transit_service.py   #   Consultas espaciais (PostGIS)
+│   │   ├── departure_service.py #   Próximas partidas numa parada
+│   │   ├── session_service.py   #   Localização e destino por usuário
+│   │   ├── eta_service.py       #   ETA a partir de GPS ao vivo
+│   │   ├── registry.py          #   Instâncias únicas dos serviços
+│   │   └── ...                  #   evolution, bus_location, webhook
 │   ├── prompts/                 # Prompt de sistema do agente
 │   └── utils/
-├── alembic/                     # Migrations
-├── tests/                       # pytest (fixtures reais do RUMO)
+├── alembic/                     # Migrations (0001 → 0003)
+├── scripts/chat.py              # Chat local, sem WhatsApp
+├── tests/                       # 156 testes (fixtures reais do RUMO)
 ├── docker-compose.yaml
 └── pyproject.toml
 ```
@@ -108,8 +117,13 @@ server/
 - [uv](https://github.com/astral-sh/uv)
 - Docker (para Postgres/PostGIS, Evolution API e Redis)
 - Chave da OpenAI (para o agente)
-- Chave do Google Maps com a **Routes API** habilitada (opcional — sem ela o ETA
-  cai para a estimativa em linha reta)
+- Chave do Google Maps com **duas APIs habilitadas**:
+  - **Routes API** — qual linha leva de A a B, horários e baldeações
+  - **Geocoding API** — transforma o destino escrito ("Shopping Recife") em
+    coordenada
+
+  Sem a Routes API o ETA cai para uma estimativa em linha reta; sem a Geocoding
+  o planejamento de viagem não funciona, porque não há como resolver o destino.
 
 ## 🚀 Instalação
 
@@ -290,9 +304,27 @@ modelo. O histórico é persistido pelo `AsyncPostgresSaver` usando o número do
 WhatsApp como `thread_id` — é isso que permite ao passageiro enviar a
 localização numa mensagem e escolher a linha na seguinte.
 
-Ferramentas disponíveis: `find_probable_lines`, `find_nearby_stops`,
-`list_lines_at_stop`, `search_lines`, `get_line_itinerary`, `select_line`,
-`get_bus_eta`.
+Ferramentas disponíveis: **`plan_trip`**, `find_probable_lines`,
+`find_nearby_stops`, `list_lines_at_stop`, `search_lines`, `get_line_itinerary`,
+`select_line`, `get_stop_departures`.
+
+### Uma única fonte de horários
+
+`plan_trip` é a **única** ferramenta que responde "quando passa". Quando o
+passageiro pergunta de novo ("e agora?", "quanto tempo falta?"), ela é chamada
+sem o argumento `destino` e replaneja a mesma viagem — o destino fica guardado
+em `user_sessions`.
+
+Isso corrige um problema observado em conversa real: existiam duas ferramentas
+respondendo à mesma pergunta, e como escolhiam paradas diferentes (uma pela
+proximidade do passageiro, outra pelo trajeto até o destino), davam horários
+diferentes para o mesmo ônibus. O passageiro percebeu e perguntou qual estava
+certo.
+
+`get_stop_departures` cobre o outro caso — quem não tem destino e só quer saber
+o movimento do ponto. Ela reporta **todas** as linhas que saem daquela parada e
+nunca afirma nada sobre uma linha específica, porque a Routes API não permite
+consultar uma linha isolada.
 
 ### Acoplar ferramentas via MCP
 
@@ -325,13 +357,18 @@ você › oi
 🤖 Me manda sua localização pelo clipe 📎 ...
 
 você › /loc                      # Cidade Universitária por padrão
-🤖 1️⃣ 2431 — TI CDU / TI CAXANGÁ (UFPE) · ao lado da Biblioteca Central da UFPE, 270 m
-   ...
-   ferramentas: find_probable_lines
+🤖 Recebi 📍 Posso te ajudar de dois jeitos:
+   • Me diz para onde você quer ir e eu digo qual ônibus pegar e onde
+   • Ou, se preferir, eu listo todos os ônibus que passam aí
 
-você › quero o primeiro
-🤖 O ônibus 2431 está a cerca de 8,5 km e deve chegar em uns 13 minutos.
-   ferramentas: select_line, get_bus_eta
+você › quero ir pro Marco Zero
+🤖 Pega o 062 na parada a 25 m da Rua Ernesto de Paula Santos 📍
+   Passa às 12:35, daqui a 8 min · chega por volta das 12:56 🚌
+   ferramentas: plan_trip
+
+você › e agora, quanto tempo falta?
+🤖 ...
+   ferramentas: plan_trip          # replaneja a MESMA viagem
 ```
 
 Comandos: `/loc [lat lon]`, `/reset`, `/sair`.
@@ -345,8 +382,9 @@ curl -X POST localhost:8000/location -H 'Content-Type: application/json' \
   -d '{"latitude":-8.03,"longitude":-34.92,"codigo_linha":"2462"}'
 ```
 
-O campo `fonte` na resposta da ferramenta diz qual caminho foi usado:
-`horarios_google` ou `gps_ao_vivo`.
+Quando há posição ao vivo da linha recomendada, o `plan_trip` acrescenta um
+bloco `gps_ao_vivo` à primeira opção, com a distância real do veículo. Sem
+rastreador, a resposta usa apenas o horário programado.
 
 ## 🧪 Testes
 

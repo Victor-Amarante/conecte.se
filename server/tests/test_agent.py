@@ -70,11 +70,20 @@ class TestTools:
     def test_the_flow_critical_tools_are_present(self):
         names = {tool.name for tool in BASE_TOOLS}
         assert {
+            "plan_trip",
             "find_probable_lines",
             "select_line",
-            "get_bus_eta",
+            "get_stop_departures",
             "search_lines",
         } <= names
+
+    def test_there_is_a_single_source_of_schedules(self):
+        """Duas ferramentas respondendo "quando passa" davam horários
+        diferentes para a mesma linha, porque escolhiam paradas diferentes —
+        e o passageiro percebia a contradição."""
+        names = {tool.name for tool in BASE_TOOLS}
+
+        assert "get_bus_eta" not in names
 
     async def test_location_tools_refuse_without_a_location(self):
         from app.agent.tools import find_probable_lines
@@ -84,20 +93,119 @@ class TestTools:
 
         assert result["erro"] == "sem_localizacao"
 
-    async def test_eta_refuses_without_a_location(self):
-        from app.agent.tools import get_bus_eta
+    async def test_trip_planning_refuses_without_a_location(self):
+        from app.agent.tools import plan_trip
 
         with use_turn_context(TurnContext("5581999999999")):
-            result = await get_bus_eta.ainvoke({"codigo_linha": "011"})
+            result = await plan_trip.ainvoke({"destino": "Marco Zero"})
+
+        assert result["erro"] == "sem_localizacao"
+
+    async def test_stop_departures_refuse_without_a_location(self):
+        from app.agent.tools import get_stop_departures
+
+        with use_turn_context(TurnContext("5581999999999")):
+            result = await get_stop_departures.ainvoke({})
 
         assert result["erro"] == "sem_localizacao"
 
 
-class TestArrivalReporting:
-    """A Routes API devolve a viagem mais rápida entre dois pontos e não aceita
-    "quero esta linha". Num corredor movimentado ela responde com as linhas
-    concorrentes, então a linha escolhida pode simplesmente não aparecer — e
-    afirmar um horário nesse caso seria inventar."""
+class TestTripReplanning:
+    """Perguntar o horário de novo replaneja a MESMA viagem.
+
+    Antes, "e quanto tempo falta?" caía numa ferramenta que recalculava pela
+    parada mais próxima. Como o planejamento usa a parada de embarque escolhida
+    para o destino, as duas respostas divergiam — mesmo ônibus, dois horários —
+    e o passageiro percebia a contradição.
+    """
+
+    @pytest.fixture
+    def patched(self, monkeypatch):
+        from app.agent import tools as tools_module
+        from app.services.geocoding_service import Place
+        from app.services.journey_service import JourneyResult
+
+        chamadas = {"geocode": 0, "plan": []}
+
+        async def fake_geocode(endereco):
+            chamadas["geocode"] += 1
+            return Place(latitude=-8.06, longitude=-34.87, endereco="Marco Zero")
+
+        async def fake_plan(**kwargs):
+            chamadas["plan"].append((kwargs["destination_lat"], kwargs["destination_lon"]))
+            return JourneyResult()  # vazio basta: interessa o destino usado
+
+        async def fake_direct(*_a, **_k):
+            return []
+
+        monkeypatch.setattr(tools_module.geocoding_service, "geocode", fake_geocode)
+        monkeypatch.setattr(tools_module.journey_service, "plan", fake_plan)
+        monkeypatch.setattr(
+            tools_module.transit_service, "find_direct_lines", fake_direct
+        )
+        return chamadas
+
+    async def test_replanning_reuses_the_saved_destination(self, patched, monkeypatch):
+        from datetime import datetime, timezone
+
+        from app.agent import tools as tools_module
+        from app.agent.tools import plan_trip
+        from app.db.models import UserSession
+
+        salvo = {}
+
+        async def fake_save(_session, numero, texto, lat, lon):
+            salvo.update(numero=numero, texto=texto, lat=lat, lon=lon)
+
+        async def fake_get(_session, _numero):
+            if not salvo:
+                return None
+            return UserSession(
+                whatsapp_number=salvo["numero"],
+                destino_texto=salvo["texto"],
+                destino_latitude=salvo["lat"],
+                destino_longitude=salvo["lon"],
+                destino_updated_at=datetime.now(timezone.utc),
+            )
+
+        monkeypatch.setattr(
+            tools_module.session_service, "save_destination", fake_save
+        )
+        monkeypatch.setattr(tools_module.session_service, "get", fake_get)
+
+        with use_turn_context(TurnContext("5581", -8.126, -34.902)):
+            await plan_trip.ainvoke({"destino": "Marco Zero"})
+            await plan_trip.ainvoke({})  # "e quanto tempo falta?"
+
+        # O segundo planejamento usou o mesmo destino, sem geocodificar de novo.
+        assert patched["geocode"] == 1
+        assert patched["plan"][0] == patched["plan"][1]
+
+    async def test_asks_for_the_destination_when_none_is_stored(
+        self, patched, monkeypatch
+    ):
+        from app.agent import tools as tools_module
+        from app.agent.tools import plan_trip
+
+        async def no_session(_session, _numero):
+            return None
+
+        monkeypatch.setattr(tools_module.session_service, "get", no_session)
+
+        with use_turn_context(TurnContext("5581", -8.126, -34.902)):
+            result = await plan_trip.ainvoke({})
+
+        assert result["erro"] == "sem_destino"
+        assert patched["plan"] == []
+
+
+class TestStopDepartures:
+    """Horários do ponto, sem prometer uma linha específica.
+
+    A Routes API devolve a viagem mais rápida entre dois pontos e não aceita
+    "quero esta linha". Esta ferramenta reporta o que de fato sai da parada e
+    deixa a checagem por linha para quem lê — sem afirmar nada que não veio.
+    """
 
     @pytest.fixture
     def patched(self, monkeypatch):
@@ -112,36 +220,37 @@ class TestArrivalReporting:
             is_terminal=False, latitude=-8.127, longitude=-34.901, distance_m=166.0,
         )
 
-        async def fake_nearest(*_a, **_k):
-            return stop
+        async def fake_nearby(*_a, **_k):
+            return [stop]
+
+        async def fake_lines(*_a, **_k):
+            return [{"codigo_linha": "011", "nome": "PIEDADE / DERBY"}]
 
         async def fake_downstream(*_a, **_k):
             return stop
 
         monkeypatch.setattr(
-            tools_module.transit_service, "nearest_stop_of_line", fake_nearest
+            tools_module.transit_service, "find_nearby_stops", fake_nearby
+        )
+        monkeypatch.setattr(
+            tools_module.transit_service, "list_lines_at_stop", fake_lines
         )
         monkeypatch.setattr(
             tools_module.transit_service, "downstream_stop_of_line", fake_downstream
         )
-        monkeypatch.setattr(
-            tools_module.bus_location_service, "get_current_location", lambda *_a: None
-        )
-
-        def make(*codigos):
-            base = datetime.now(timezone.utc) + timedelta(minutes=10)
-            return [
-                Departure(
-                    codigo_linha=c, nome_linha=f"Linha {c}", headsign="Centro",
-                    stop_name="010014",
-                    departure_time=base + timedelta(minutes=i * 5), stop_count=10,
-                )
-                for i, c in enumerate(codigos)
-            ]
 
         def set_departures(*codigos):
+            base = datetime.now(timezone.utc) + timedelta(minutes=10)
+
             async def fake(*_a, **_k):
-                return make(*codigos)
+                return [
+                    Departure(
+                        codigo_linha=c, nome_linha=f"Linha {c}", headsign="Centro",
+                        stop_name="010014",
+                        departure_time=base + timedelta(minutes=i * 5), stop_count=10,
+                    )
+                    for i, c in enumerate(codigos)
+                ]
 
             monkeypatch.setattr(
                 tools_module.departure_service, "next_departures", fake
@@ -149,43 +258,38 @@ class TestArrivalReporting:
 
         return set_departures
 
-    async def test_confirms_when_the_chosen_line_is_returned(self, patched):
-        from app.agent.tools import get_bus_eta
+    async def test_reports_every_line_leaving_the_stop(self, patched):
+        from app.agent.tools import get_stop_departures
 
-        patched("011", "910")
-
-        with use_turn_context(TurnContext("5581", -8.126, -34.902)):
-            result = await get_bus_eta.ainvoke({"codigo_linha": "011"})
-
-        assert result["linha_escolhida_confirmada"] is True
-        assert result["faltam_minutos"] >= 0
-        assert result["sentido"] == "Centro"
-
-    async def test_does_not_claim_a_time_for_an_absent_line(self, patched):
-        from app.agent.tools import get_bus_eta
-
-        patched("910", "064", "030")  # a 011 não veio
+        patched("910", "064", "030")
 
         with use_turn_context(TurnContext("5581", -8.126, -34.902)):
-            result = await get_bus_eta.ainvoke({"codigo_linha": "011"})
+            result = await get_stop_departures.ainvoke({})
 
-        assert result["linha_escolhida_confirmada"] is False
+        assert [d["codigo_linha"] for d in result["proximos"]] == ["910", "064", "030"]
+        assert result["referencia_da_parada"] == "PARADA 15"
+        assert result["distancia_m"] == 166
+
+    async def test_never_claims_a_specific_line(self, patched):
+        """A resposta não deve conter campo algum que afirme uma linha
+        escolhida — essa promessa é justamente a que não podemos cumprir."""
+        from app.agent.tools import get_stop_departures
+
+        patched("910", "064")
+
+        with use_turn_context(TurnContext("5581", -8.126, -34.902)):
+            result = await get_stop_departures.ainvoke({})
+
+        assert "linha_escolhida_confirmada" not in result
         assert "faltam_minutos" not in result
-        assert "horario" not in result
-        assert "observacao" in result
-        # As alternativas reais continuam disponíveis: é o que resolve o
-        # problema do passageiro quando a linha dele não pôde ser confirmada.
-        assert [d["codigo_linha"] for d in result["proximos_na_parada"]] == [
-            "910", "064", "030"
-        ]
 
     async def test_reports_when_nothing_runs_at_all(self, patched):
-        from app.agent.tools import get_bus_eta
+        from app.agent.tools import get_stop_departures
 
         patched()
 
         with use_turn_context(TurnContext("5581", -8.126, -34.902)):
-            result = await get_bus_eta.ainvoke({"codigo_linha": "011"})
+            result = await get_stop_departures.ainvoke({})
 
         assert result["erro"] == "sem_horarios"
 
