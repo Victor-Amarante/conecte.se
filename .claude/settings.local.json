@@ -13,7 +13,8 @@
       "Bash(grep -nE \"^\\\\| \\\\`?\\(GET|POST\\)|localhost:8000/|POST /location|gps_ao_vivo|horarios_google\" README.md)",
       "Bash(break)",
       "Bash(curl -s localhost:8000/openapi.json)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -X POST localhost:8000/webhook -H 'Content-Type: application/json' -d '{\"event\":\"messages.upsert\",\"data\":{\"key\":{\"remoteJid\":\"148271481798877@lid\",\"fromMe\":false},\"message\":{\"conversation\":\"oi\"}}}')"
     ]
   }
 }

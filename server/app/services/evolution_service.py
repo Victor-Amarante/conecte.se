@@ -3,6 +3,7 @@ from loguru import logger
 
 from app.core.config import settings
 from app.core.exceptions import MessageSendError
+from app.utils.whatsapp_format import to_whatsapp
 
 
 class EvolutionApiService:
@@ -24,7 +25,8 @@ class EvolutionApiService:
     async def send_text_message(self, user_cellphone: str, message: str) -> dict:
         payload = {
             "number": user_cellphone,
-            "text": message,
+            # O modelo escreve Markdown; o WhatsApp tem sintaxe própria.
+            "text": to_whatsapp(message),
         }
 
         url = f"{self.base_url}/message/sendText/{self.instance_name}"
