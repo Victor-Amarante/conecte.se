@@ -387,6 +387,124 @@ class TransitService:
             for r in result
         ]
 
+    async def find_direct_lines(
+        self,
+        session: AsyncSession,
+        origin_lat: float,
+        origin_lon: float,
+        destination_lat: float,
+        destination_lon: float,
+        radius_m: int = 600,
+        limit: int = 5,
+    ) -> list[dict]:
+        """Linhas que levam da origem ao destino **sem baldeação**.
+
+        Calculado nos nossos próprios itinerários, sem depender do Google. Isso
+        atende o caso em que o roteador se recusa a sugerir ônibus por achar o
+        trajeto curto demais — mas o passageiro quer ir de ônibus mesmo assim,
+        seja por mobilidade, bagagem, chuva ou calor.
+
+        O ``sequence`` do destino precisa ser **maior** que o da origem no mesmo
+        itinerário; sem essa comparação sugeriríamos a linha certa no sentido
+        oposto, que é pior que não sugerir nada.
+        """
+        radius_m = _clamp_radius(radius_m)
+        result = await session.execute(
+            text(
+                """
+                WITH origem AS (
+                    SELECT ss.subline_id, ss.sequence, s.id AS stop_id,
+                           s.codigo, s.nome, s.referencia,
+                           s.latitude, s.longitude,
+                           ST_Distance(
+                               s.geom::geography,
+                               ST_SetSRID(ST_MakePoint(:olon, :olat), 4326)::geography
+                           ) AS distancia
+                    FROM stops s
+                    JOIN subline_stops ss ON ss.stop_id = s.id
+                    WHERE ST_DWithin(
+                        s.geom::geography,
+                        ST_SetSRID(ST_MakePoint(:olon, :olat), 4326)::geography,
+                        :radius
+                    )
+                ),
+                destino AS (
+                    SELECT ss.subline_id, ss.sequence, s.codigo,
+                           ST_Distance(
+                               s.geom::geography,
+                               ST_SetSRID(ST_MakePoint(:dlon, :dlat), 4326)::geography
+                           ) AS distancia
+                    FROM stops s
+                    JOIN subline_stops ss ON ss.stop_id = s.id
+                    WHERE ST_DWithin(
+                        s.geom::geography,
+                        ST_SetSRID(ST_MakePoint(:dlon, :dlat), 4326)::geography,
+                        :radius
+                    )
+                )
+                SELECT DISTINCT ON (sl.codigo_linha)
+                    sl.codigo_linha,
+                    bl.nome           AS nome_linha,
+                    origem.stop_id,
+                    origem.codigo     AS parada_codigo,
+                    origem.nome       AS parada_nome,
+                    origem.referencia AS parada_referencia,
+                    origem.distancia  AS distancia_embarque,
+                    destino.codigo    AS desembarque_codigo,
+                    destino.distancia AS distancia_desembarque,
+                    destino.sequence - origem.sequence AS paradas_no_trecho
+                FROM origem
+                JOIN destino
+                  ON destino.subline_id = origem.subline_id
+                 AND destino.sequence > origem.sequence
+                JOIN sublines sl ON sl.id = origem.subline_id
+                JOIN bus_lines bl ON bl.codigo_linha = sl.codigo_linha
+                WHERE bl.ativo
+                ORDER BY sl.codigo_linha, origem.distancia, destino.distancia
+                """
+            ),
+            {
+                "olat": origin_lat,
+                "olon": origin_lon,
+                "dlat": destination_lat,
+                "dlon": destination_lon,
+                "radius": radius_m,
+            },
+        )
+
+        linhas = [
+            {
+                "codigo_linha": row.codigo_linha,
+                "nome": row.nome_linha,
+                "parada_embarque": {
+                    "stop_id": row.stop_id,
+                    "codigo": row.parada_codigo,
+                    "nome": row.parada_nome or row.parada_codigo,
+                    "referencia": row.parada_referencia,
+                    "distancia_m": round(row.distancia_embarque),
+                },
+                "desembarque": row.desembarque_codigo,
+                "distancia_ate_o_destino_m": round(row.distancia_desembarque),
+                "paradas_no_trecho": row.paradas_no_trecho,
+            }
+            for row in result
+        ]
+        # Ordenar só por parada mais próxima engana: uma linha pode passar na
+        # esquina do passageiro e levar 80 paradas para andar 800 m, porque faz
+        # a volta inteira antes de chegar. O número de paradas do trecho é o
+        # melhor sinal de que a linha vai *direto*, e pesa mais que caminhar
+        # alguns metros a mais até o embarque.
+        linhas.sort(
+            key=lambda l: (
+                l["paradas_no_trecho"],
+                l["parada_embarque"]["distancia_m"],
+            )
+        )
+        logger.info(
+            f"find_direct_lines -> {len(linhas)} linha(s) diretas (raio {radius_m}m)"
+        )
+        return linhas[:limit]
+
     async def downstream_stop_of_line(
         self,
         session: AsyncSession,
