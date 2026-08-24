@@ -67,7 +67,11 @@ class WebhookService:
             user=parsed.user_number,
             message_received=parsed.text,
             reply_sent=reply,
-            eta_available="get_bus_eta" in tools_used,
+            # plan_trip é a única fonte de horário; get_stop_departures cobre
+            # quem pergunta pelo ponto sem informar destino.
+            eta_available=bool(
+                {"plan_trip", "get_stop_departures"} & set(tools_used)
+            ),
             kind=parsed.kind,
             tools_used=tools_used,
         )

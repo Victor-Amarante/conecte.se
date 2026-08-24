@@ -153,6 +153,23 @@ class TestIgnoredAndInvalid:
                 payload({"conversation": "oi"}, remoteJid="12345@lid")
             )
 
+    def test_lid_with_a_resolved_number_is_processed(self, service):
+        """O WhatsApp manda o LID no remoteJid e o telefone no `senderPn`.
+
+        Na primeira mensagem de um contato novo o `senderPn` costuma vir vazio,
+        e a mensagem é descartada — foi por isso que os primeiros testes
+        precisaram ser enviados duas vezes.
+        """
+        parsed = service._parse_payload(
+            payload(
+                {"conversation": "oi"},
+                remoteJid="148271481798877@lid",
+                senderPn="558198188404@s.whatsapp.net",
+            )
+        )
+
+        assert parsed.user_number == "558198188404"
+
     def test_empty_message_is_ignored(self, service):
         with pytest.raises(WebhookIgnoredError, match="empty"):
             service._parse_payload(payload({}))

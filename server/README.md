@@ -45,6 +45,11 @@ prioridade sobre o horário programado, por ser mais precisa.
 
 ## ✨ Funcionalidades
 
+- 🧭 **Planejamento de viagem**: origem → destino pela Routes API, com linha,
+  parada de embarque, horário e baldeações; o destino fica guardado na sessão,
+  então "e agora?" replaneja a **mesma** viagem
+- 🚶 **Trajeto curto**: quando o Google manda caminhar, a linha direta é
+  calculada nos nossos itinerários e oferecida junto
 - 🗺️ **Rede de transporte completa**: paradas, linhas, sublinhas, itinerários e
   traçados, com consultas espaciais em PostGIS
 - 🎯 **Linhas prováveis por localização**: dada a posição do passageiro, ranqueia
@@ -53,7 +58,10 @@ prioridade sobre o horário programado, por ser mais precisa.
   conversa persistida por número de WhatsApp
 - 🔌 **Ferramentas via MCP**: capacidades externas acopláveis sem alterar o grafo
 - 📍 **Localização pelo WhatsApp**: aceita `locationMessage` e `liveLocationMessage`
-- ⏰ **ETA com trânsito real**: Google Routes API, com fallback Haversine
+- 💬 **Formatação nativa do WhatsApp**: o Markdown do modelo é convertido no
+  envio, para o passageiro não ver asteriscos na tela
+- ⏰ **ETA a partir de GPS ao vivo**: Google Routes API, com fallback Haversine —
+  usado quando há rastreamento próprio alimentando `POST /location`
 - 🔄 **ETL idempotente**: sincronização do RUMO com snapshots brutos e auditoria
 
 ## 🛠️ Tecnologias
@@ -93,11 +101,22 @@ server/
 │   │   └── session.py           # Engine e sessões async
 │   ├── routers/                 # webhook, bus_location, transit
 │   ├── schemas/                 # Modelos Pydantic
-│   ├── services/                # transit, eta, session, evolution, bus_location
+│   ├── services/
+│   │   ├── journey_service.py   #   Planejamento origem → destino
+│   │   ├── geocoding_service.py #   Destino escrito → coordenada
+│   │   ├── transit_service.py   #   Consultas espaciais (PostGIS)
+│   │   ├── departure_service.py #   Próximas partidas numa parada
+│   │   ├── session_service.py   #   Localização e destino por usuário
+│   │   ├── eta_service.py       #   ETA a partir de GPS ao vivo
+│   │   ├── registry.py          #   Instâncias únicas dos serviços
+│   │   └── ...                  #   evolution, bus_location, webhook
 │   ├── prompts/                 # Prompt de sistema do agente
 │   └── utils/
-├── alembic/                     # Migrations
-├── tests/                       # pytest (fixtures reais do RUMO)
+│       ├── whatsapp_format.py   #   Markdown do modelo → formatação do WhatsApp
+│       └── extract_user_number.py
+├── alembic/                     # Migrations (0001 → 0003)
+├── scripts/chat.py              # Chat local, sem WhatsApp
+├── tests/                       # 169 testes (fixtures reais do RUMO)
 ├── docker-compose.yaml
 └── pyproject.toml
 ```
@@ -108,8 +127,13 @@ server/
 - [uv](https://github.com/astral-sh/uv)
 - Docker (para Postgres/PostGIS, Evolution API e Redis)
 - Chave da OpenAI (para o agente)
-- Chave do Google Maps com a **Routes API** habilitada (opcional — sem ela o ETA
-  cai para a estimativa em linha reta)
+- Chave do Google Maps com **duas APIs habilitadas**:
+  - **Routes API** — qual linha leva de A a B, horários e baldeações
+  - **Geocoding API** — transforma o destino escrito ("Shopping Recife") em
+    coordenada
+
+  Sem a Routes API o ETA cai para uma estimativa em linha reta; sem a Geocoding
+  o planejamento de viagem não funciona, porque não há como resolver o destino.
 
 ## 🚀 Instalação
 
@@ -125,9 +149,10 @@ Variáveis essenciais em `.env`:
 AUTHENTICATION_API_KEY=...      # Evolution API
 EVO_BASE_URL=...
 EVO_INSTANCE_NAME=...
+CONFIG_SESSION_PHONE_VERSION=2.3000.1043857760   # sem isso o QR code não gera
 CONECTESE_DATABASE_URL=postgresql+asyncpg://conectese:conectese@localhost:5434/conectese
 OPENAI_API_KEY=...
-GOOGLE_MAPS_API_KEY=...         # opcional
+GOOGLE_MAPS_API_KEY=...         # Routes API + Geocoding API
 ```
 
 ## 🚀 Subir tudo de uma vez
@@ -138,9 +163,9 @@ cp .env.example .env    # preencha OPENAI_API_KEY e GOOGLE_MAPS_API_KEY
 docker compose up -d --build
 ```
 
-Isso sobe cinco serviços: a API do Conectese, o Postgres/PostGIS da aplicação,
-a Evolution API, o Postgres dela e o Redis. A API **aplica as migrations
-sozinha** na subida, então um banco novo já nasce com o schema.
+Isso sobe seis serviços: a API do Conectese, o Postgres/PostGIS da aplicação, a
+Evolution API, o Postgres dela, o Redis e o pgAdmin. A API **aplica as
+migrations sozinha** na subida, então um banco novo já nasce com o schema.
 
 Depois, duas coisas que o compose não faz por você:
 
@@ -153,6 +178,13 @@ docker compose exec api python -m app.etl.cli sync
 **2. Parear o número do WhatsApp.** Abra `http://localhost:8080/manager`, entre
 com a `AUTHENTICATION_API_KEY` do seu `.env`, crie uma instância com o nome de
 `EVO_INSTANCE_NAME` e leia o QR code pelo WhatsApp.
+
+> ⚠️ **Se o QR code não aparecer, é a versão do WhatsApp Web.** O Baileys anuncia
+> a versão definida em `CONFIG_SESSION_PHONE_VERSION`; quando ela envelhece, o
+> WhatsApp recusa a sessão e a instância entra em loop de reconexão **sem
+> registrar erro nenhum** — a tela fica em branco e nada no log explica. A versão
+> atual está em
+> [`baileys-version.json`](https://raw.githubusercontent.com/WhiskeySockets/Baileys/master/src/Defaults/baileys-version.json).
 
 Ou pela API:
 
@@ -290,9 +322,27 @@ modelo. O histórico é persistido pelo `AsyncPostgresSaver` usando o número do
 WhatsApp como `thread_id` — é isso que permite ao passageiro enviar a
 localização numa mensagem e escolher a linha na seguinte.
 
-Ferramentas disponíveis: `find_probable_lines`, `find_nearby_stops`,
-`list_lines_at_stop`, `search_lines`, `get_line_itinerary`, `select_line`,
-`get_bus_eta`.
+Ferramentas disponíveis: **`plan_trip`**, `find_probable_lines`,
+`find_nearby_stops`, `list_lines_at_stop`, `search_lines`, `get_line_itinerary`,
+`select_line`, `get_stop_departures`.
+
+### Uma única fonte de horários
+
+`plan_trip` é a **única** ferramenta que responde "quando passa". Quando o
+passageiro pergunta de novo ("e agora?", "quanto tempo falta?"), ela é chamada
+sem o argumento `destino` e replaneja a mesma viagem — o destino fica guardado
+em `user_sessions`.
+
+Isso corrige um problema observado em conversa real: existiam duas ferramentas
+respondendo à mesma pergunta, e como escolhiam paradas diferentes (uma pela
+proximidade do passageiro, outra pelo trajeto até o destino), davam horários
+diferentes para o mesmo ônibus. O passageiro percebeu e perguntou qual estava
+certo.
+
+`get_stop_departures` cobre o outro caso — quem não tem destino e só quer saber
+o movimento do ponto. Ela reporta **todas** as linhas que saem daquela parada e
+nunca afirma nada sobre uma linha específica, porque a Routes API não permite
+consultar uma linha isolada.
 
 ### Acoplar ferramentas via MCP
 
@@ -308,6 +358,42 @@ Crie `server/mcp_servers.json`:
 
 As ferramentas são carregadas na inicialização do agente. Falhas aqui **não são
 fatais**: o agente segue com as ferramentas nativas.
+
+## 📱 A camada do WhatsApp
+
+Duas particularidades do canal que já custaram bugs visíveis ao passageiro.
+
+### Formatação: WhatsApp não é Markdown
+
+Negrito no WhatsApp é `*assim*`, com **um** asterisco. O modelo escreve Markdown
+por hábito, e numa conversa real a mensagem chegou como `**360**`, com os
+asteriscos à mostra.
+
+O prompt pede a sintaxe certa, mas isso não basta: numa resposta longa a
+instrução se perde. Por isso a conversão acontece **no código**, em
+`utils/whatsapp_format.py`, aplicada por `EvolutionApiService.send_text_message`
+logo antes do envio — negrito, títulos `#` e espaços de fim de linha. É a última
+coisa que roda, então nenhuma resposta escapa.
+
+### Mensagens descartadas ficam no log
+
+O WhatsApp identifica quem envia por um **LID** (`148271481798877@lid`), que não
+é um telefone. O número real vem em `senderPn` — e na primeira mensagem de um
+contato novo esse campo costuma vir **vazio**, porque o WhatsApp ainda não
+resolveu o número. Sem ele não há para onde responder, e a mensagem é
+descartada; a segunda tentativa funciona.
+
+Esse é o motivo de, nos primeiros testes, ser preciso enviar tudo duas vezes.
+
+O descarte em si continua — não há como responder a quem não tem número —, mas
+ele deixou de ser invisível. O `webhook_ignored_handler` respondia `200
+{"status":"ignored"}` **sem logar nada**: para a Evolution, sucesso; para nós,
+silêncio. Hoje mensagem de passageiro descartada sai como `WARNING`, enquanto
+grupo e eco do próprio bot ficam em `debug`, que é ruído esperado.
+
+```
+WARNING | Mensagem do usuário DESCARTADA: masked user (LID) - cannot respond
+```
 
 ## 💬 Conversar com o agente sem WhatsApp
 
@@ -325,13 +411,18 @@ você › oi
 🤖 Me manda sua localização pelo clipe 📎 ...
 
 você › /loc                      # Cidade Universitária por padrão
-🤖 1️⃣ 2431 — TI CDU / TI CAXANGÁ (UFPE) · ao lado da Biblioteca Central da UFPE, 270 m
-   ...
-   ferramentas: find_probable_lines
+🤖 Recebi 📍 Posso te ajudar de dois jeitos:
+   • Me diz para onde você quer ir e eu digo qual ônibus pegar e onde
+   • Ou, se preferir, eu listo todos os ônibus que passam aí
 
-você › quero o primeiro
-🤖 O ônibus 2431 está a cerca de 8,5 km e deve chegar em uns 13 minutos.
-   ferramentas: select_line, get_bus_eta
+você › quero ir pro Marco Zero
+🤖 Pega o 062 na parada a 25 m da Rua Ernesto de Paula Santos 📍
+   Passa às 12:35, daqui a 8 min · chega por volta das 12:56 🚌
+   ferramentas: plan_trip
+
+você › e agora, quanto tempo falta?
+🤖 ...
+   ferramentas: plan_trip          # replaneja a MESMA viagem
 ```
 
 Comandos: `/loc [lat lon]`, `/reset`, `/sair`.
@@ -345,8 +436,9 @@ curl -X POST localhost:8000/location -H 'Content-Type: application/json' \
   -d '{"latitude":-8.03,"longitude":-34.92,"codigo_linha":"2462"}'
 ```
 
-O campo `fonte` na resposta da ferramenta diz qual caminho foi usado:
-`horarios_google` ou `gps_ao_vivo`.
+Quando há posição ao vivo da linha recomendada, o `plan_trip` acrescenta um
+bloco `gps_ao_vivo` à primeira opção, com a distância real do veículo. Sem
+rastreador, a resposta usa apenas o horário programado.
 
 ## 🧪 Testes
 

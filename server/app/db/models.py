@@ -183,6 +183,13 @@ class UserSession(Base):
     last_longitude: Mapped[float | None] = mapped_column(Float)
     location_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     selected_codigo_linha: Mapped[str | None] = mapped_column(String(16))
+    # Para onde o passageiro disse que vai. Guardar isso é o que permite
+    # responder "e agora, quanto tempo falta?" replanejando a mesma viagem, em
+    # vez de recalcular por proximidade e contradizer a resposta anterior.
+    destino_texto: Mapped[str | None] = mapped_column(String(255))
+    destino_latitude: Mapped[float | None] = mapped_column(Float)
+    destino_longitude: Mapped[float | None] = mapped_column(Float)
+    destino_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow,
         server_default=func.now(),

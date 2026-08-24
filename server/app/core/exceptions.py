@@ -56,7 +56,17 @@ async def app_exception_handler(_request: Request, exc: AppException) -> JSONRes
 
 
 async def webhook_ignored_handler(_request: Request, exc: WebhookIgnoredError) -> JSONResponse:
+    # Descartar em silêncio esconde mensagens que o passageiro mandou e nunca
+    # foram respondidas — foi assim que o caso do LID sem `senderPn` passou
+    # despercebido, visível só porque o usuário reclamou de ter que reenviar.
+    # Grupos e eco do próprio bot são ruído esperado; o resto merece atenção.
+    reason = exc.reason
+    if "group" in reason or "bot" in reason:
+        logger.debug(f"Webhook ignorado: {reason}")
+    else:
+        logger.warning(f"Mensagem do usuário DESCARTADA: {reason}")
+
     return JSONResponse(
         status_code=200,
-        content={"status": "ignored", "reason": exc.reason},
+        content={"status": "ignored", "reason": reason},
     )
