@@ -40,6 +40,7 @@ Reduzir a imprevisibilidade do transporte público, permitindo que o passageiro:
 | 🎯 | **Linhas prováveis** | Ranqueia as linhas que atendem o passageiro, por distância da parada, quantidade de paradas no raio e presença de terminal |
 | 🗺️ | **Itinerários** | Sequência ordenada de paradas de cada linha |
 | ⏰ | **Horários do ponto** | Próximas passagens na parada mais próxima, de todas as linhas |
+| 💬 | **Formatação nativa** | O Markdown do modelo é convertido antes do envio — o passageiro não vê asteriscos na tela |
 
 ### 🚧 O que ainda não existe
 
@@ -48,6 +49,7 @@ Reduzir a imprevisibilidade do transporte público, permitindo que o passageiro:
 | 🔍 | **Localização do ônibus em tempo real** | **Não implementado.** Não há fonte pública de posição de veículo (AVL) para a RMR |
 | 📡 | **Monitoramento contínuo do veículo** | O endpoint `POST /location` existe e o agente prioriza GPS ao vivo quando há — mas **nada alimenta esse endpoint hoje** |
 | 🔔 | **Notificações e alertas** | Não existe. O assistente é instruído a recusar quando pedem, em vez de prometer |
+| 🆔 | **Resposta a contato novo mascarado** | O WhatsApp às vezes entrega só um identificador (LID), sem o telefone. Sem número, não há para onde responder — hoje o descarte ao menos aparece no log |
 
 ### ⚠️ Uma distinção que importa
 
@@ -91,8 +93,8 @@ Você › Oi, boa noite!
 
 Você › [envia a localização]
  Bot › Recebi 📍 Posso te ajudar de dois jeitos:
-       • Me diz **para onde você quer ir** e eu digo qual ônibus pegar e onde
-       • Ou, se preferir, eu listo **todos os ônibus que passam aí**
+       • Me diz *para onde você quer ir* e eu digo qual ônibus pegar e onde
+       • Ou, se preferir, eu listo *todos os ônibus que passam aí*
 
        O que você prefere?
 
@@ -121,6 +123,11 @@ Perguntar o destino é o que torna a resposta útil — uma parada costuma ser
 servida por muitas linhas indo para lados opostos, e listar todas transferiria
 ao passageiro justamente o trabalho que o assistente deveria fazer. Mas quem só
 quer conhecer as linhas do ponto tem uma pergunta legítima, e continua atendido.
+
+> As mensagens saem com a formatação do WhatsApp (`*negrito*`, um asterisco só).
+> O modelo escreve Markdown por hábito, então a conversão acontece no código,
+> logo antes do envio — no prompt ela se perdia em respostas longas e chegou a
+> sair `**360**` para um passageiro real.
 
 ### Destino perto: ônibus continua sendo oferecido
 
@@ -153,6 +160,20 @@ ferramentas respondendo "quando passa", cada uma escolhendo uma parada
 diferente: uma pela proximidade do passageiro, outra pelo trajeto até o
 destino. Hoje existe uma só.
 
+### A primeira mensagem de um contato novo
+
+Nos primeiros testes era preciso **enviar tudo duas vezes**. O motivo: o
+WhatsApp identifica quem envia por um LID — um identificador mascarado, não um
+telefone — e manda o número real num campo à parte, que na primeira mensagem de
+um contato novo costuma vir vazio. Sem número, não há para onde responder, e a
+mensagem é descartada.
+
+Isso ainda acontece, e não há solução enquanto o número não chega. O que mudou
+foi a visibilidade: o descarte era **completamente silencioso** — respondia
+"ok" à Evolution e não escrevia nada no log —, então uma classe inteira de
+mensagens perdidas só apareceu porque um usuário reclamou. Agora aparece como
+aviso.
+
 ## 🛠️ Tecnologias
 
 | Camada | Tecnologia |
@@ -162,7 +183,7 @@ destino. Hoje existe uma só.
 | ETL | httpx, selectolax, pyproj, tenacity |
 | IA | LangGraph, LangChain, OpenAI, langchain-mcp-adapters |
 | WhatsApp | Evolution API v2.3.0 |
-| Rotas | Google Routes API |
+| Rotas | Google Routes API, Google Geocoding API |
 | Infra | Docker Compose, uv |
 
 ## 📁 Estrutura
@@ -178,7 +199,7 @@ conectese/
     │   └── services/
     ├── alembic/     # migrations
     ├── scripts/     # chat local, sem WhatsApp
-    ├── tests/       # 156 testes
+    ├── tests/       # 169 testes
     └── docker-compose.yaml
 ```
 
@@ -194,7 +215,9 @@ docker compose up -d --build
 docker compose exec api python -m app.etl.cli sync   # carrega a rede, ~2 min
 ```
 
-Depois pareie o WhatsApp em `http://localhost:8080/manager`.
+Depois pareie o WhatsApp em `http://localhost:8080/manager`. Se o QR code não
+aparecer, a `CONFIG_SESSION_PHONE_VERSION` está desatualizada — a falha é
+silenciosa e está explicada em [server/README.md](server/README.md).
 
 Para conversar com o agente **sem WhatsApp**:
 
