@@ -1,0 +1,11 @@
+# Donos do código deste repositório.
+#
+# Cada linha é um padrão de arquivo seguido de um ou mais donos. O último
+# padrão que casar com um arquivo é o que vale — regras mais específicas
+# devem vir depois das genéricas.
+#
+# Com a regra "Require review from Code Owners" ativada nas branch protection
+# rules da main, todo PR que toque estes arquivos exige aprovação do dono.
+
+# Dono padrão de tudo no repositório.
+* @Victor-Amarante
